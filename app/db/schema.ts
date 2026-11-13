@@ -7,6 +7,7 @@ import {
   uniqueIndex,
   type AnySQLiteColumn,
 } from "drizzle-orm/sqlite-core";
+import type { NotificationData } from "../lib/notification-catalogue.server";
 
 export enum UserRole {
   Student = "student",
@@ -32,7 +33,7 @@ export enum QuestionType {
 }
 
 export enum RefundStatus {
-  Requested = "requested",
+  Open = "open",
   Approved = "approved",
   Declined = "declined",
 }
@@ -239,8 +240,8 @@ export const refunds = sqliteTable(
     status: text("status")
       .notNull()
       .$type<RefundStatus>()
-      .default(RefundStatus.Requested),
-    // The learner's own words, in the box on the course page.
+      .default(RefundStatus.Open),
+    // The student's own words, in the box on the course page.
     reason: text("reason").notNull(),
     // Null until someone approves — a declined request refunds nothing.
     amountRefunded: integer("amount_refunded"),
@@ -249,6 +250,9 @@ export const refunds = sqliteTable(
       .$defaultFn(() => new Date().toISOString()),
     resolvedAt: text("resolved_at"),
     resolvedByUserId: integer("resolved_by_user_id").references(() => users.id),
+    // The Platform Admin's note to the buyer. Required on a decline, optional
+    // on an approval. Enforced on write.
+    decisionNote: text("decision_note"),
   },
   (table) => [index("refunds_purchase_idx").on(table.purchaseId)]
 );
@@ -288,6 +292,9 @@ export const coupons = sqliteTable("coupons", {
     .references(() => purchases.id),
   redeemedByUserId: integer("redeemed_by_user_id").references(() => users.id),
   redeemedAt: text("redeemed_at"),
+  // Set on every Unclaimed Seat when its Team Licence's Refund Request is
+  // approved. The Seat can never be claimed after that.
+  refundedAt: text("refunded_at"),
   createdAt: text("created_at")
     .notNull()
     .$defaultFn(() => new Date().toISOString()),
@@ -368,3 +375,36 @@ export const videoWatchEvents = sqliteTable("video_watch_events", {
     .notNull()
     .$defaultFn(() => new Date().toISOString()),
 });
+
+// One row per Notification Recipient: the row is the in-app channel. `data`
+// holds the facts, never wording (docs/adr/0013). There are deliberately no
+// foreign keys to the things a Notification mentions (including its actor),
+// so a Notification outlives them.
+export const notifications = sqliteTable(
+  "notifications",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    recipientId: integer("recipient_id")
+      .notNull()
+      .references(() => users.id),
+    actorId: integer("actor_id").notNull(),
+    kind: text("kind").notNull(),
+    // Typed so writes are checked. Rows written earlier may not match, so the
+    // inbox still validates `data` when it reads it (docs/adr/0013).
+    data: text("data", { mode: "json" }).notNull().$type<NotificationData>(),
+    url: text("url").notNull(),
+    groupKey: text("group_key"),
+    createdAt: text("created_at").notNull(),
+    readAt: text("read_at"),
+  },
+  (table) => [
+    index("notifications_recipient_created_idx").on(
+      table.recipientId,
+      table.createdAt
+    ),
+    index("notifications_recipient_read_idx").on(
+      table.recipientId,
+      table.readAt
+    ),
+  ]
+);

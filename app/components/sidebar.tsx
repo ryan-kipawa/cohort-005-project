@@ -1,6 +1,7 @@
-import { NavLink, Form } from "react-router";
+import { NavLink, Form, useFetcher } from "react-router";
 import { useState, useEffect } from "react";
 import { cn } from "~/lib/utils";
+import { unreadBadgeLabel, watchUnreadCount } from "~/lib/unread-badge";
 import { UserRole } from "~/db/schema";
 import { UserAvatar } from "~/components/user-avatar";
 import {
@@ -11,12 +12,14 @@ import {
   MessageSquare,
   Shield,
   Tag,
+  Receipt,
   Users,
   UsersRound,
   Moon,
   Sun,
   LogOut,
   Settings,
+  Inbox,
 } from "lucide-react";
 
 interface CurrentUser {
@@ -40,6 +43,7 @@ interface SidebarProps {
   currentUser: CurrentUser | null;
   recentCourses?: RecentCourse[];
   isTeamAdmin?: boolean;
+  unreadNotificationCount?: number;
 }
 
 interface NavItem {
@@ -98,7 +102,43 @@ const navItems: NavItem[] = [
     icon: <Tag className="size-4" />,
     roles: [UserRole.Admin],
   },
+  {
+    label: "Refund Requests",
+    to: "/admin/refunds",
+    icon: <Receipt className="size-4" />,
+    roles: [UserRole.Admin],
+  },
 ];
+
+const UNREAD_COUNT_URL = "/api/notifications/unread-count";
+
+/**
+ * The unread count for the badge: the layout loader's value, kept fresh by a
+ * fetcher on window focus and every 60 seconds while the tab is visible,
+ * without rerunning the layout loader.
+ */
+function useFreshUnreadCount(initialCount: number, enabled: boolean): number {
+  const fetcher = useFetcher<{ count: number }>();
+  const [count, setCount] = useState(initialCount);
+  const load = fetcher.load;
+
+  // A layout revalidation (user switch, mark read) brings a newer count.
+  useEffect(() => setCount(initialCount), [initialCount]);
+
+  useEffect(() => {
+    if (fetcher.data) setCount(fetcher.data.count);
+  }, [fetcher.data]);
+
+  useEffect(() => {
+    if (!enabled) return;
+    return watchUnreadCount(() => load(UNREAD_COUNT_URL), {
+      window,
+      document,
+    });
+  }, [enabled, load]);
+
+  return count;
+}
 
 function isVisible(item: NavItem, role: UserRole | null): boolean {
   if (item.roles === "all") return true;
@@ -110,8 +150,14 @@ export function Sidebar({
   currentUser,
   recentCourses = [],
   isTeamAdmin = false,
+  unreadNotificationCount = 0,
 }: SidebarProps) {
   const currentUserRole = currentUser?.role ?? null;
+  const unreadCount = useFreshUnreadCount(
+    unreadNotificationCount,
+    currentUser !== null
+  );
+  const unreadLabel = unreadBadgeLabel(unreadCount);
   const [isDark, setIsDark] = useState(false);
 
   useEffect(() => {
@@ -169,6 +215,30 @@ export function Sidebar({
           >
             <UsersRound className="size-4" />
             Team
+          </NavLink>
+        )}
+        {currentUser && (
+          <NavLink
+            to="/notifications"
+            className={({ isActive }) =>
+              cn(
+                "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                isActive
+                  ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                  : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+              )
+            }
+          >
+            <Inbox className="size-4" />
+            Notifications
+            {unreadLabel && (
+              <span
+                className="ml-auto min-w-4 rounded-full bg-red-600 px-1 text-center text-[10px] font-bold leading-4 text-white"
+                aria-label={`${unreadCount} unread`}
+              >
+                {unreadLabel}
+              </span>
+            )}
           </NavLink>
         )}
       </nav>

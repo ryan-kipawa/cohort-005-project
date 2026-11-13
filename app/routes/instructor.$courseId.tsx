@@ -11,6 +11,7 @@ import type { Route } from "./+types/instructor.$courseId";
 import { getCurrentUserId } from "~/lib/session";
 import { CourseStatus, UserRole } from "~/db/schema";
 import { db } from "~/db";
+import { changeCourseStatus } from "~/lib/courses.server";
 import {
   courses,
   categories,
@@ -146,15 +147,6 @@ function updateCourse(id: number, title: string, description: string) {
   return db
     .update(courses)
     .set({ title, description, updatedAt: new Date().toISOString() })
-    .where(eq(courses.id, id))
-    .returning()
-    .get();
-}
-
-function updateCourseStatus(id: number, status: CourseStatus) {
-  return db
-    .update(courses)
-    .set({ status, updatedAt: new Date().toISOString() })
     .where(eq(courses.id, id))
     .returning()
     .get();
@@ -693,7 +685,7 @@ export async function action({ params, request }: Route.ActionArgs) {
   }
 
   if (intent === "update-status") {
-    updateCourseStatus(courseId, parsed.data.status);
+    changeCourseStatus(db, currentUserId, courseId, parsed.data.status, new Date());
     return { success: true, field: "status" };
   }
 

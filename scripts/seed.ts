@@ -10,9 +10,12 @@ import {
   UserRole,
   CourseStatus,
   LessonProgressStatus,
+  RefundStatus,
   QuestionType,
   TeamMemberRole,
 } from "../app/db/schema";
+import { notify, type Tx } from "../app/lib/notifications.server";
+import { excerpt, ref, userRef } from "../app/lib/notification-refs.server";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -64,6 +67,7 @@ async function seed() {
 
   // Drop and recreate tables for a clean seed
   sqlite.exec(`
+    DROP TABLE IF EXISTS notifications;
     DROP TABLE IF EXISTS comments;
     DROP TABLE IF EXISTS course_ratings;
     DROP TABLE IF EXISTS video_watch_events;
@@ -190,7 +194,7 @@ async function seed() {
       },
       {
         name: "Liam Thompson",
-        email: "liam.thompson@student.dev",
+        email: "liam@example.com",
         role: UserRole.Student,
         avatarUrl: "https://api.dicebear.com/9.x/avataaars/svg?seed=liam",
         createdAt: daysAgo(30),
@@ -222,15 +226,40 @@ async function seed() {
   // generated at the bottom of this file. Sign-up dates are spread across the
   // last twelve months, including the last few days.
   const cohortNames = [
-    "Ava Nakamura", "Noah Blackwood", "Isla Fernandes", "Ethan Okafor",
-    "Mia Lindqvist", "Lucas Moreau", "Zara Haddad", "Felix Andersen",
-    "Nina Kowalski", "Omar Rahman", "Chloe Beaumont", "Dmitri Volkov",
-    "Priya Raghavan", "Tomas Silva", "Hana Kim", "Gabriel Rossi",
-    "Amara Diallo", "Jonas Weber", "Lena Petrova", "Kwame Mensah",
-    "Sofia Ricci", "Aarav Shah", "Freya Nilsen", "Diego Castillo",
-    "Yuki Tanaka", "Rosa Delgado", "Idris Bello", "Clara Hoffmann",
-    "Mateo Alvarez", "Elif Demir", "Ruben Ortiz", "Anika Bose",
-    "Caleb Ncube", "Marta Novak",
+    "Ava Nakamura",
+    "Noah Blackwood",
+    "Isla Fernandes",
+    "Ethan Okafor",
+    "Mia Lindqvist",
+    "Lucas Moreau",
+    "Zara Haddad",
+    "Felix Andersen",
+    "Nina Kowalski",
+    "Omar Rahman",
+    "Chloe Beaumont",
+    "Dmitri Volkov",
+    "Priya Raghavan",
+    "Tomas Silva",
+    "Hana Kim",
+    "Gabriel Rossi",
+    "Amara Diallo",
+    "Jonas Weber",
+    "Lena Petrova",
+    "Kwame Mensah",
+    "Sofia Ricci",
+    "Aarav Shah",
+    "Freya Nilsen",
+    "Diego Castillo",
+    "Yuki Tanaka",
+    "Rosa Delgado",
+    "Idris Bello",
+    "Clara Hoffmann",
+    "Mateo Alvarez",
+    "Elif Demir",
+    "Ruben Ortiz",
+    "Anika Bose",
+    "Caleb Ncube",
+    "Marta Novak",
   ];
 
   const cohort = db
@@ -386,7 +415,7 @@ By the end of this course, you'll understand why TypeScript has become the defau
       categoryId: catBySlug["programming"].id,
       status: CourseStatus.Published,
       coverImageUrl: "/images/course-typescript.svg",
-      price: 4999,
+      price: 7900,
       createdAt: daysAgo(355),
       updatedAt: daysAgo(10),
     })
@@ -2058,7 +2087,9 @@ This course is still in draft while the cluster examples are rewritten against t
   markComplete(students[4].id, course1LessonIds[0], 12);
   markInProgress(students[4].id, course1LessonIds[1]);
 
-  console.log(`Created ${countRows(schema.lessonProgress)} lesson progress records.`);
+  console.log(
+    `Created ${countRows(schema.lessonProgress)} lesson progress records.`
+  );
 
   // ─── Quiz Attempts ───
 
@@ -2229,7 +2260,7 @@ This course is still in draft while the cluster examples are rewritten against t
     .values({
       userId: students[0].id, // Emma — bought course 1 individually
       courseId: course1.id,
-      amountPaid: 4999,
+      amountPaid: 7900,
       country: "US",
       createdAt: daysAgo(50),
     })
@@ -2260,7 +2291,7 @@ This course is still in draft while the cluster examples are rewritten against t
     .values({
       userId: students[2].id, // Olivia — bought course 1 individually
       courseId: course1.id,
-      amountPaid: 4999,
+      amountPaid: 7900,
       country: "US",
       createdAt: daysAgo(35),
     })
@@ -2270,7 +2301,7 @@ This course is still in draft while the cluster examples are rewritten against t
     .values({
       userId: students[4].id, // Sophia — bought course 1 individually
       courseId: course1.id,
-      amountPaid: 4999,
+      amountPaid: 7900,
       country: "US",
       createdAt: daysAgo(15),
     })
@@ -2346,7 +2377,7 @@ This course is still in draft while the cluster examples are rewritten against t
 
   db.update(schema.coupons)
     .set({
-      redeemedByUserId: studentByEmail("liam.thompson@student.dev").id,
+      redeemedByUserId: studentByEmail("liam@example.com").id,
       redeemedAt: daysAgo(25),
     })
     .where(eq(schema.coupons.id, seededCoupons[1].id))
@@ -2714,7 +2745,7 @@ This course is still in draft while the cluster examples are rewritten against t
   );
 
   // Four seats on Design Systems, bought during launch week, none redeemed yet.
-  createTeamPurchase(
+  const novakLicence = createTeamPurchase(
     "marta.novak@student.dev",
     course3,
     4,
@@ -2722,6 +2753,138 @@ This course is still in draft while the cluster examples are rewritten against t
     4,
     []
   );
+
+  // ─── Liam's Refund Request ───
+  // One learner with an Open Refund Request. The dates count back from
+  // today, so the fourteen-day refund window is still open whenever you seed.
+
+  const liam = studentByEmail("liam@example.com");
+  const [liamPurchase] = db
+    .insert(schema.purchases)
+    .values({
+      userId: liam.id,
+      courseId: course1.id,
+      amountPaid: 7900,
+      country: null,
+      createdAt: daysAgo(9),
+    })
+    .returning()
+    .all();
+  db.insert(schema.enrollments)
+    .values({
+      userId: liam.id,
+      courseId: course1.id,
+      enrolledAt: daysAgo(9),
+    })
+    .run();
+  db.insert(schema.lessonProgress)
+    .values([
+      ...course1LessonIds.slice(0, 3).map((lessonId, i) => ({
+        userId: liam.id,
+        lessonId,
+        status: LessonProgressStatus.Completed,
+        completedAt: daysAgo(8 - i),
+      })),
+      {
+        userId: liam.id,
+        lessonId: course1LessonIds[3],
+        status: LessonProgressStatus.InProgress,
+        completedAt: null,
+      },
+    ])
+    .run();
+  db.insert(schema.courseRatings)
+    .values({
+      userId: liam.id,
+      courseId: course1.id,
+      rating: 4,
+      createdAt: daysAgo(6),
+      updatedAt: daysAgo(6),
+    })
+    .run();
+  const liamRefundRequest = db
+    .insert(schema.refunds)
+    .values({
+      purchaseId: liamPurchase.id,
+      status: RefundStatus.Open,
+      reason: "Bought the wrong one, I meant the advanced course.",
+      requestedAt: daysAgo(4),
+    })
+    .returning()
+    .get();
+
+  console.log("Created Liam's Refund Request.");
+
+  // ─── Marta's Refund Request ───
+  // A Team Licence with no Claimed Seats, so a Platform Admin can approve it.
+  // Its Seats are on hold while the request is open.
+
+  const martaRefundRequest = db
+    .insert(schema.refunds)
+    .values({
+      purchaseId: novakLicence.purchase.id,
+      status: RefundStatus.Open,
+      reason:
+        "Our design team was reorganised and nobody needs these seats now.",
+      requestedAt: daysAgo(1),
+    })
+    .returning()
+    .get();
+
+  console.log("Created Marta's Refund Request on her Team Licence.");
+
+  // ─── Decided Refund Requests ───
+  // One approved and one declined, so the buyers have a Notification of each.
+  // James bought course 3 and was refunded, so he has no Enrollment on it.
+  // Sophia's request on course 1 was declined, so she keeps hers.
+
+  const [jamesCourse3Purchase] = db
+    .insert(schema.purchases)
+    .values({
+      userId: students[1].id,
+      courseId: course3.id,
+      amountPaid: 4900,
+      country: "IN",
+      createdAt: daysAgo(10),
+    })
+    .returning()
+    .all();
+  const jamesRefundRequest = db
+    .insert(schema.refunds)
+    .values({
+      purchaseId: jamesCourse3Purchase.id,
+      status: RefundStatus.Approved,
+      reason: "I bought it by mistake; I meant to buy it for my team.",
+      requestedAt: daysAgo(8),
+      amountRefunded: jamesCourse3Purchase.amountPaid,
+      resolvedAt: daysAgo(7),
+      resolvedByUserId: admin.id,
+    })
+    .returning()
+    .get();
+
+  const sophiaPurchase = db
+    .select()
+    .from(schema.purchases)
+    .where(eq(schema.purchases.userId, students[4].id))
+    .get();
+  if (!sophiaPurchase) throw new Error("Sophia's purchase was not seeded");
+  const sophiaRefundRequest = db
+    .insert(schema.refunds)
+    .values({
+      purchaseId: sophiaPurchase.id,
+      status: RefundStatus.Declined,
+      reason: "The pace is too slow for me.",
+      requestedAt: daysAgo(12),
+      decisionNote:
+        "You have completed most of the lessons, which is past what our refund policy covers.",
+      resolvedAt: daysAgo(11),
+      resolvedByUserId: admin.id,
+    })
+    .returning()
+    .get();
+
+  console.log("Created an approved and a declined Refund Request.");
 
   // ─── Flush watch events ───
   // Batched: the heartbeat makes these by far the largest table, and one
@@ -2735,6 +2898,439 @@ This course is still in draft while the cluster examples are rewritten against t
   }
 
   console.log(`Created ${watchEventRows.length} video watch events.`);
+
+  // ─── Notifications ───
+  // Raised through `notify`, the same producer the app uses, so they render
+  // exactly as real ones do. Add an entry per Notification to seed more.
+
+  type SeededNotification = {
+    when: Date;
+    read: boolean;
+    raise: (tx: Tx, now: Date) => void;
+  };
+
+  function roleChanged(
+    user: typeof schema.users.$inferSelect,
+    from: UserRole
+  ): SeededNotification["raise"] {
+    return (tx, now) =>
+      notify(
+        tx,
+        {
+          kind: "role_changed",
+          data: {
+            actor: userRef(tx, admin.id),
+            object: ref("user", user.id, user.name),
+            change: { from, to: user.role },
+          },
+          url: "/dashboard",
+          recipients: { user: user.id },
+        },
+        now
+      );
+  }
+
+  const emma = studentByEmail("emma.wilson@student.dev");
+
+  // The buyer raising a Refund Request notifies every Platform Admin.
+  function refundRequestRaised(
+    buyer: typeof schema.users.$inferSelect,
+    refundRequest: typeof schema.refunds.$inferSelect,
+    course: typeof schema.courses.$inferSelect,
+    purchaseKind: "individual_purchase" | "team_licence"
+  ): SeededNotification["raise"] {
+    return (tx, now) =>
+      notify(
+        tx,
+        {
+          kind: "refund_request_raised",
+          data: {
+            actor: userRef(tx, buyer.id),
+            object: ref("refund_request", refundRequest.id, course.title),
+            target: ref(purchaseKind, refundRequest.purchaseId, course.title),
+            excerpt: refundRequest.reason,
+          },
+          url: "/admin/refunds",
+          recipients: { platformAdmins: true },
+        },
+        now
+      );
+  }
+
+  // A Platform Admin deciding an Individual Purchase's Refund Request
+  // notifies its buyer.
+  function refundRequestDecided(
+    kind: "refund_request_approved" | "refund_request_declined",
+    buyerId: number,
+    refundRequest: typeof schema.refunds.$inferSelect,
+    course: typeof schema.courses.$inferSelect
+  ): SeededNotification["raise"] {
+    return (tx, now) =>
+      notify(
+        tx,
+        {
+          kind,
+          data: {
+            actor: userRef(tx, admin.id),
+            object: ref("refund_request", refundRequest.id, course.title),
+            target: ref(
+              "individual_purchase",
+              refundRequest.purchaseId,
+              course.title
+            ),
+            ...(kind === "refund_request_declined" && refundRequest.decisionNote
+              ? { excerpt: refundRequest.decisionNote }
+              : {}),
+          },
+          url: "/settings",
+          recipients: { user: buyerId },
+        },
+        now
+      );
+  }
+
+  const seededNotifications: SeededNotification[] = [
+    {
+      when: new Date(hoursAgo(2)),
+      read: false,
+      raise: roleChanged(instructor3, UserRole.Student),
+    },
+    {
+      when: new Date(daysAgo(20)),
+      read: true,
+      raise: roleChanged(instructor2, UserRole.Student),
+    },
+    {
+      when: new Date(daysAgo(3)),
+      read: false,
+      raise: roleChanged(emma, UserRole.Instructor),
+    },
+    {
+      when: new Date(liamRefundRequest.requestedAt),
+      read: true,
+      raise: refundRequestRaised(
+        liam,
+        liamRefundRequest,
+        course1,
+        "individual_purchase"
+      ),
+    },
+    {
+      when: new Date(martaRefundRequest.requestedAt),
+      read: false,
+      raise: refundRequestRaised(
+        studentByEmail("marta.novak@student.dev"),
+        martaRefundRequest,
+        course3,
+        "team_licence"
+      ),
+    },
+    {
+      when: new Date(daysAgo(7)),
+      read: false,
+      raise: refundRequestDecided(
+        "refund_request_approved",
+        students[1].id,
+        jamesRefundRequest,
+        course3
+      ),
+    },
+    {
+      when: new Date(daysAgo(11)),
+      read: true,
+      raise: refundRequestDecided(
+        "refund_request_declined",
+        students[4].id,
+        sophiaRefundRequest,
+        course1
+      ),
+    },
+  ];
+
+  // Course status and archive Notifications. Course 2 was archived by the
+  // admin and later put back on sale; course 5 was taken back to draft.
+
+  function courseStatusChanged(
+    course: typeof schema.courses.$inferSelect,
+    from: CourseStatus,
+    to: CourseStatus
+  ): SeededNotification["raise"] {
+    return (tx, now) =>
+      notify(
+        tx,
+        {
+          kind: "course_status_changed",
+          data: {
+            actor: userRef(tx, admin.id),
+            object: ref("course", course.id, course.title),
+            change: { from, to },
+          },
+          url: `/instructor/${course.id}`,
+          recipients: { user: course.instructorId },
+        },
+        now
+      );
+  }
+
+  function courseArchived(
+    course: typeof schema.courses.$inferSelect
+  ): SeededNotification["raise"] {
+    return (tx, now) =>
+      notify(
+        tx,
+        {
+          kind: "course_archived",
+          data: {
+            actor: userRef(tx, admin.id),
+            object: ref("course", course.id, course.title),
+          },
+          url: `/courses/${course.slug}`,
+          recipients: { courseStudents: course.id },
+        },
+        now
+      );
+  }
+
+  // New Students and Claimed Seats, matching the enrollments and the Team
+  // Licence seeded above. Course 1's first three new Students group into one
+  // read row; Sophia arrived after it was read, so she is her own unread row.
+
+  function newStudent(
+    student: typeof schema.users.$inferSelect,
+    course: typeof schema.courses.$inferSelect
+  ): SeededNotification["raise"] {
+    return (tx, now) => {
+      const studentRef = userRef(tx, student.id);
+      notify(
+        tx,
+        {
+          kind: "new_student",
+          data: {
+            actor: studentRef,
+            object: studentRef,
+            target: ref("course", course.id, course.title),
+          },
+          url: `/instructor/${course.id}/students`,
+          recipients: { courseInstructor: course.id },
+        },
+        now
+      );
+    };
+  }
+
+  // Both raised by the same archive, a millisecond apart so marking the first
+  // read (matched on its time) leaves the second unread.
+  const course2ArchivedAt = new Date(daysAgo(12));
+
+  seededNotifications.push(
+    {
+      when: course2ArchivedAt,
+      read: true,
+      raise: courseStatusChanged(
+        course2,
+        CourseStatus.Published,
+        CourseStatus.Archived
+      ),
+    },
+    {
+      when: new Date(course2ArchivedAt.getTime() + 1),
+      read: false,
+      raise: courseArchived(course2),
+    },
+    {
+      when: new Date(daysAgo(9)),
+      read: true,
+      raise: courseStatusChanged(
+        course2,
+        CourseStatus.Archived,
+        CourseStatus.Published
+      ),
+    },
+    {
+      when: new Date(hoursAgo(5)),
+      read: false,
+      raise: courseStatusChanged(
+        course5,
+        CourseStatus.Published,
+        CourseStatus.Draft
+      ),
+    }
+  );
+
+  function seatClaimed(
+    student: typeof schema.users.$inferSelect,
+    seat: typeof schema.coupons.$inferSelect
+  ): SeededNotification["raise"] {
+    return (tx, now) =>
+      notify(
+        tx,
+        {
+          kind: "seat_claimed",
+          data: {
+            actor: userRef(tx, student.id),
+            object: ref("seat", seat.id, seat.code),
+            target: ref("team_licence", teamPurchase.id, course2.title),
+          },
+          url: "/team",
+          recipients: { user: teamPurchase.userId },
+        },
+        now
+      );
+  }
+
+  const olivia = studentByEmail("olivia.martinez@student.dev");
+
+  seededNotifications.push(
+    {
+      when: new Date(daysAgo(50)),
+      read: true,
+      raise: newStudent(emma, course1),
+    },
+    {
+      when: new Date(daysAgo(45)),
+      read: true,
+      raise: newStudent(studentByEmail("james.park@student.dev"), course1),
+    },
+    {
+      when: new Date(daysAgo(35)),
+      read: true,
+      raise: newStudent(olivia, course1),
+    },
+    {
+      when: new Date(daysAgo(15)),
+      read: false,
+      raise: newStudent(studentByEmail("sophia.davis@student.dev"), course1),
+    },
+    {
+      when: new Date(daysAgo(30)),
+      read: true,
+      raise: (tx, now) => {
+        seatClaimed(olivia, seededCoupons[0])(tx, now);
+        newStudent(olivia, course2)(tx, now);
+      },
+    },
+    {
+      when: new Date(daysAgo(25)),
+      read: false,
+      raise: (tx, now) => {
+        seatClaimed(liam, seededCoupons[1])(tx, now);
+        newStudent(liam, course2)(tx, now);
+      },
+    }
+  );
+
+  // Lesson Thread Notifications, raised from the seeded Lesson Threads above.
+  function lessonThreadNotification(
+    kind: "lesson_thread_started" | "lesson_thread_reply" | "lesson_thread_answer" | "post_deleted",
+    actor: typeof schema.users.$inferSelect,
+    post: typeof schema.comments.$inferSelect,
+    recipientId: number
+  ): SeededNotification["raise"] {
+    return (tx, now) => {
+      const lesson = tx
+        .select({ id: schema.lessons.id, title: schema.lessons.title, slug: schema.courses.slug })
+        .from(schema.lessons)
+        .innerJoin(schema.modules, eq(schema.lessons.moduleId, schema.modules.id))
+        .innerJoin(schema.courses, eq(schema.modules.courseId, schema.courses.id))
+        .where(eq(schema.lessons.id, post.lessonId))
+        .get();
+      if (!lesson) throw new Error(`Lesson ${post.lessonId} was not seeded`);
+
+      const inThread = kind === "lesson_thread_reply" || kind === "lesson_thread_answer";
+      let target;
+      if (!inThread) {
+        target = ref("lesson", lesson.id, lesson.title);
+      } else if (post.parentId === null) {
+        throw new Error(`A ${kind} Notification needs a reply, not an opening post`);
+      } else {
+        target = ref("lesson_thread", post.parentId, lesson.title);
+      }
+
+      notify(
+        tx,
+        {
+          kind,
+          data: {
+            actor: userRef(tx, actor.id),
+            object: ref(
+              post.parentId === null ? "lesson_thread" : "reply",
+              post.id,
+              lesson.title
+            ),
+            target,
+            excerpt: excerpt(post.body),
+          },
+          url: `/courses/${lesson.slug}/lessons/${lesson.id}`,
+          recipients: { user: recipientId },
+        },
+        now
+      );
+    };
+  }
+
+  const c1q1Answer = db
+    .select()
+    .from(schema.comments)
+    .where(eq(schema.comments.parentId, c1q1.id))
+    .all()
+    .find((reply) => reply.userId === instructor1.id);
+  if (!c1q1Answer) throw new Error("Sarah's answer to c1q1 was not seeded");
+  const c1q4Reply = db
+    .select()
+    .from(schema.comments)
+    .where(eq(schema.comments.parentId, c1q4.id))
+    .get();
+  if (!c1q4Reply) throw new Error("The reply to c1q4 was not seeded");
+  // A reply Sarah removed as off-topic; only its Notification mentions it now.
+  const removedReply = db
+    .insert(schema.comments)
+    .values({
+      lessonId: c1q4.lessonId,
+      userId: students[2].id,
+      parentId: c1q4.id,
+      body: "Anyone want to buy my old course notes? DM me.",
+      createdAt: daysAgo(2),
+      deletedAt: daysAgo(1),
+    })
+    .returning()
+    .get();
+
+  seededNotifications.push(
+    {
+      when: new Date(hoursAgo(5)),
+      read: false,
+      raise: lessonThreadNotification("lesson_thread_started", students[1], c1q4, instructor1.id),
+    },
+    {
+      when: new Date(daysAgo(29)),
+      read: true,
+      raise: lessonThreadNotification("lesson_thread_answer", instructor1, c1q1Answer, students[0].id),
+    },
+    {
+      when: new Date(hoursAgo(3)),
+      read: false,
+      raise: lessonThreadNotification("lesson_thread_reply", students[0], c1q4Reply, students[1].id),
+    },
+    {
+      when: new Date(daysAgo(1)),
+      read: false,
+      raise: lessonThreadNotification("post_deleted", instructor1, removedReply, students[2].id),
+    }
+  );
+
+  for (const seeded of seededNotifications) {
+    db.transaction((tx) => {
+      seeded.raise(tx, seeded.when);
+      if (!seeded.read) return;
+      // Its recipients have since read it.
+      tx.update(schema.notifications)
+        .set({ readAt: seeded.when.toISOString() })
+        .where(eq(schema.notifications.createdAt, seeded.when.toISOString()))
+        .run();
+    });
+  }
+
+  console.log(`Created ${countRows(schema.notifications)} notifications.`);
 
   // ─── Summary ───
 
