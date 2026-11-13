@@ -1,6 +1,7 @@
-import { NavLink, Form } from "react-router";
+import { NavLink, Form, useFetcher } from "react-router";
 import { useState, useEffect } from "react";
 import { cn } from "~/lib/utils";
+import { unreadBadgeLabel, watchUnreadCount } from "~/lib/unread-badge";
 import { UserRole } from "~/db/schema";
 import { UserAvatar } from "~/components/user-avatar";
 import {
@@ -109,6 +110,36 @@ const navItems: NavItem[] = [
   },
 ];
 
+const UNREAD_COUNT_URL = "/api/notifications/unread-count";
+
+/**
+ * The unread count for the badge: the layout loader's value, kept fresh by a
+ * fetcher on window focus and every 60 seconds while the tab is visible,
+ * without rerunning the layout loader.
+ */
+function useFreshUnreadCount(initialCount: number, enabled: boolean): number {
+  const fetcher = useFetcher<{ count: number }>();
+  const [count, setCount] = useState(initialCount);
+  const load = fetcher.load;
+
+  // A layout revalidation (user switch, mark read) brings a newer count.
+  useEffect(() => setCount(initialCount), [initialCount]);
+
+  useEffect(() => {
+    if (fetcher.data) setCount(fetcher.data.count);
+  }, [fetcher.data]);
+
+  useEffect(() => {
+    if (!enabled) return;
+    return watchUnreadCount(() => load(UNREAD_COUNT_URL), {
+      window,
+      document,
+    });
+  }, [enabled, load]);
+
+  return count;
+}
+
 function isVisible(item: NavItem, role: UserRole | null): boolean {
   if (item.roles === "all") return true;
   if (!role) return false;
@@ -122,6 +153,11 @@ export function Sidebar({
   unreadNotificationCount = 0,
 }: SidebarProps) {
   const currentUserRole = currentUser?.role ?? null;
+  const unreadCount = useFreshUnreadCount(
+    unreadNotificationCount,
+    currentUser !== null
+  );
+  const unreadLabel = unreadBadgeLabel(unreadCount);
   const [isDark, setIsDark] = useState(false);
 
   useEffect(() => {
@@ -195,12 +231,12 @@ export function Sidebar({
           >
             <Inbox className="size-4" />
             Notifications
-            {unreadNotificationCount > 0 && (
+            {unreadLabel && (
               <span
                 className="ml-auto min-w-4 rounded-full bg-red-600 px-1 text-center text-[10px] font-bold leading-4 text-white"
-                aria-label={`${unreadNotificationCount} unread`}
+                aria-label={`${unreadCount} unread`}
               >
-                {unreadNotificationCount > 99 ? "99+" : unreadNotificationCount}
+                {unreadLabel}
               </span>
             )}
           </NavLink>
