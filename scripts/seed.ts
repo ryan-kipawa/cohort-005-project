@@ -225,15 +225,40 @@ async function seed() {
   // generated at the bottom of this file. Sign-up dates are spread across the
   // last twelve months, including the last few days.
   const cohortNames = [
-    "Ava Nakamura", "Noah Blackwood", "Isla Fernandes", "Ethan Okafor",
-    "Mia Lindqvist", "Lucas Moreau", "Zara Haddad", "Felix Andersen",
-    "Nina Kowalski", "Omar Rahman", "Chloe Beaumont", "Dmitri Volkov",
-    "Priya Raghavan", "Tomas Silva", "Hana Kim", "Gabriel Rossi",
-    "Amara Diallo", "Jonas Weber", "Lena Petrova", "Kwame Mensah",
-    "Sofia Ricci", "Aarav Shah", "Freya Nilsen", "Diego Castillo",
-    "Yuki Tanaka", "Rosa Delgado", "Idris Bello", "Clara Hoffmann",
-    "Mateo Alvarez", "Elif Demir", "Ruben Ortiz", "Anika Bose",
-    "Caleb Ncube", "Marta Novak",
+    "Ava Nakamura",
+    "Noah Blackwood",
+    "Isla Fernandes",
+    "Ethan Okafor",
+    "Mia Lindqvist",
+    "Lucas Moreau",
+    "Zara Haddad",
+    "Felix Andersen",
+    "Nina Kowalski",
+    "Omar Rahman",
+    "Chloe Beaumont",
+    "Dmitri Volkov",
+    "Priya Raghavan",
+    "Tomas Silva",
+    "Hana Kim",
+    "Gabriel Rossi",
+    "Amara Diallo",
+    "Jonas Weber",
+    "Lena Petrova",
+    "Kwame Mensah",
+    "Sofia Ricci",
+    "Aarav Shah",
+    "Freya Nilsen",
+    "Diego Castillo",
+    "Yuki Tanaka",
+    "Rosa Delgado",
+    "Idris Bello",
+    "Clara Hoffmann",
+    "Mateo Alvarez",
+    "Elif Demir",
+    "Ruben Ortiz",
+    "Anika Bose",
+    "Caleb Ncube",
+    "Marta Novak",
   ];
 
   const cohort = db
@@ -2061,7 +2086,9 @@ This course is still in draft while the cluster examples are rewritten against t
   markComplete(students[4].id, course1LessonIds[0], 12);
   markInProgress(students[4].id, course1LessonIds[1]);
 
-  console.log(`Created ${countRows(schema.lessonProgress)} lesson progress records.`);
+  console.log(
+    `Created ${countRows(schema.lessonProgress)} lesson progress records.`
+  );
 
   // ─── Quiz Attempts ───
 
@@ -2796,7 +2823,8 @@ This course is still in draft while the cluster examples are rewritten against t
     .values({
       purchaseId: novakLicence.purchase.id,
       status: RefundStatus.Open,
-      reason: "Our design team was reorganised and nobody needs these seats now.",
+      reason:
+        "Our design team was reorganised and nobody needs these seats now.",
       requestedAt: daysAgo(1),
     })
     .returning()
@@ -2961,6 +2989,35 @@ This course is still in draft while the cluster examples are rewritten against t
       );
   }
 
+  // New Students and Claimed Seats, matching the enrollments and the Team
+  // Licence seeded above. Course 1's first three new Students group into one
+  // read row; Sophia arrived after it was read, so she is her own unread row.
+
+  function newStudent(
+    student: typeof schema.users.$inferSelect,
+    course: typeof schema.courses.$inferSelect
+  ): SeededNotification["raise"] {
+    const studentRef = {
+      type: "user" as const,
+      id: student.id,
+      label: student.name,
+    };
+    return (tx, now) =>
+      notify(
+        tx,
+        student.id,
+        "new_student",
+        {
+          actor: studentRef,
+          object: studentRef,
+          target: { type: "course", id: course.id, label: course.title },
+        },
+        `/instructor/${course.id}/students`,
+        { courseInstructor: course.id },
+        now
+      );
+  }
+
   // Both raised by the same archive, a millisecond apart so marking the first
   // read (matched on its time) leaves the second unread.
   const course2ArchivedAt = new Date(daysAgo(12));
@@ -2969,7 +3026,11 @@ This course is still in draft while the cluster examples are rewritten against t
     {
       when: course2ArchivedAt,
       read: true,
-      raise: courseStatusChanged(course2, CourseStatus.Published, CourseStatus.Archived),
+      raise: courseStatusChanged(
+        course2,
+        CourseStatus.Published,
+        CourseStatus.Archived
+      ),
     },
     {
       when: new Date(course2ArchivedAt.getTime() + 1),
@@ -2979,12 +3040,85 @@ This course is still in draft while the cluster examples are rewritten against t
     {
       when: new Date(daysAgo(9)),
       read: true,
-      raise: courseStatusChanged(course2, CourseStatus.Archived, CourseStatus.Published),
+      raise: courseStatusChanged(
+        course2,
+        CourseStatus.Archived,
+        CourseStatus.Published
+      ),
     },
     {
       when: new Date(hoursAgo(5)),
       read: false,
-      raise: courseStatusChanged(course5, CourseStatus.Published, CourseStatus.Draft),
+      raise: courseStatusChanged(
+        course5,
+        CourseStatus.Published,
+        CourseStatus.Draft
+      ),
+    }
+  );
+
+  function seatClaimed(
+    student: typeof schema.users.$inferSelect,
+    seat: typeof schema.coupons.$inferSelect
+  ): SeededNotification["raise"] {
+    return (tx, now) =>
+      notify(
+        tx,
+        student.id,
+        "seat_claimed",
+        {
+          actor: { type: "user", id: student.id, label: student.name },
+          object: { type: "seat", id: seat.id, label: seat.code },
+          target: {
+            type: "team_licence",
+            id: teamPurchase.id,
+            label: course2.title,
+          },
+        },
+        "/team",
+        { user: teamPurchase.userId },
+        now
+      );
+  }
+
+  const olivia = studentByEmail("olivia.martinez@student.dev");
+
+  seededNotifications.push(
+    {
+      when: new Date(daysAgo(50)),
+      read: true,
+      raise: newStudent(emma, course1),
+    },
+    {
+      when: new Date(daysAgo(45)),
+      read: true,
+      raise: newStudent(studentByEmail("james.park@student.dev"), course1),
+    },
+    {
+      when: new Date(daysAgo(35)),
+      read: true,
+      raise: newStudent(olivia, course1),
+    },
+    {
+      when: new Date(daysAgo(15)),
+      read: false,
+      raise: newStudent(studentByEmail("sophia.davis@student.dev"), course1),
+    },
+    {
+      when: new Date(daysAgo(30)),
+      read: true,
+      raise: (tx, now) => {
+        seatClaimed(olivia, seededCoupons[0])(tx, now);
+        newStudent(olivia, course2)(tx, now);
+      },
+    },
+    {
+      when: new Date(daysAgo(25)),
+      read: false,
+      raise: (tx, now) => {
+        seatClaimed(liam, seededCoupons[1])(tx, now);
+        newStudent(liam, course2)(tx, now);
+      },
     }
   );
 

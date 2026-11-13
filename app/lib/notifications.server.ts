@@ -2,7 +2,13 @@ import { and, desc, eq, gte, inArray, isNull, lt } from "drizzle-orm";
 import type { BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
 import { z } from "zod";
 import * as schema from "~/db/schema";
-import { enrollments, notifications, users, UserRole } from "~/db/schema";
+import {
+  courses,
+  enrollments,
+  notifications,
+  users,
+  UserRole,
+} from "~/db/schema";
 import {
   catalogue,
   catalogueEntry,
@@ -54,16 +60,26 @@ const recipientResolvers = {
       .where(eq(enrollments.courseId, courseId))
       .all()
       .map((row) => row.id),
+  courseInstructor: (db: Queryable, courseId: number): number[] =>
+    db
+      .select({ id: courses.instructorId })
+      .from(courses)
+      .where(eq(courses.id, courseId))
+      .all()
+      .map((row) => row.id),
 };
 
 type Resolvers = typeof recipientResolvers;
 
-/** e.g. `{ user: 7 }`, `{ platformAdmins: true }` or `{ courseStudents: 3 }`. */
+/** e.g. `{ user: 7 }`, `{ platformAdmins: true }`, `{ courseStudents: 3 }` or `{ courseInstructor: 3 }`. */
 export type RecipientSelector = {
   [K in keyof Resolvers]: { [P in K]: Parameters<Resolvers[K]>[1] };
 }[keyof Resolvers];
 
-function resolveRecipients(db: Queryable, selector: RecipientSelector): number[] {
+function resolveRecipients(
+  db: Queryable,
+  selector: RecipientSelector
+): number[] {
   const ids: number[] = [];
   for (const key of Object.keys(recipientResolvers) as (keyof Resolvers)[]) {
     if (!(key in selector)) continue;

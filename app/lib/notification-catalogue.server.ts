@@ -36,7 +36,8 @@ export type NotificationData = {
   change?: { from: string; to: string };
 };
 
-export type NotificationCategory = "Money" | "Courses" | "Discussion" | "Account";
+export type NotificationCategory =
+  "Money" | "Courses" | "Discussion" | "Account";
 
 export type RenderedNotification = { title: string; body?: string };
 
@@ -55,7 +56,10 @@ export type CatalogueEntry = {
    * `data` is the newest Notification in the row. `group` is every
    * Notification behind the row, newest first (just `[data]` when ungrouped).
    */
-  render: (data: NotificationData, group: NotificationData[]) => RenderedNotification;
+  render: (
+    data: NotificationData,
+    group: NotificationData[]
+  ) => RenderedNotification;
 };
 
 function capitalise(word: string) {
@@ -117,7 +121,8 @@ export const catalogue = {
     object: ["course"],
     render: (data) => {
       const change = data.change;
-      if (!change) return { title: `${data.object.label} had its status changed` };
+      if (!change)
+        return { title: `${data.object.label} had its status changed` };
       return {
         title: `${data.object.label} was moved from ${capitalise(change.from)} to ${capitalise(change.to)}`,
         body: `${data.actor.label} changed the status of your course.`,
@@ -128,6 +133,30 @@ export const catalogue = {
     category: "Courses",
     object: ["course"],
     render: (data) => ({ title: `${data.object.label} was archived` }),
+  },
+  new_student: {
+    category: "Courses",
+    object: ["user"],
+    target: ["course"],
+    groupBy: "target",
+    render: (data, group) => {
+      const course = data.target?.label ?? "your course";
+      const others = group.length - 1;
+      const who =
+        others === 0
+          ? data.object.label
+          : `${data.object.label} and ${others} ${others === 1 ? "other" : "others"}`;
+      return { title: `${who} joined ${course}` };
+    },
+  },
+  seat_claimed: {
+    category: "Money",
+    object: ["seat"],
+    target: ["team_licence"],
+    render: (data) => ({
+      title: `${data.actor.label} claimed a Seat on your Team Licence for ${data.target?.label ?? "a course"}`,
+      body: "Your Team Licence can no longer be refunded.",
+    }),
   },
 } satisfies Record<string, CatalogueEntry>;
 
