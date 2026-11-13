@@ -14,6 +14,7 @@ import {
   QuestionType,
   TeamMemberRole,
 } from "../app/db/schema";
+import { notify, type Tx } from "../app/lib/notifications.server";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -65,6 +66,7 @@ async function seed() {
 
   // Drop and recreate tables for a clean seed
   sqlite.exec(`
+    DROP TABLE IF EXISTS notifications;
     DROP TABLE IF EXISTS comments;
     DROP TABLE IF EXISTS course_ratings;
     DROP TABLE IF EXISTS video_watch_events;
@@ -2810,6 +2812,70 @@ This course is still in draft while the cluster examples are rewritten against t
   }
 
   console.log(`Created ${watchEventRows.length} video watch events.`);
+
+  // ─── Notifications ───
+  // Raised through `notify`, the same producer the app uses, so they render
+  // exactly as real ones do. Add an entry per Notification to seed more.
+
+  type SeededNotification = {
+    when: Date;
+    read: boolean;
+    raise: (tx: Tx, now: Date) => void;
+  };
+
+  function roleChanged(
+    user: typeof schema.users.$inferSelect,
+    from: UserRole
+  ): SeededNotification["raise"] {
+    return (tx, now) =>
+      notify(
+        tx,
+        admin.id,
+        "role_changed",
+        {
+          actor: { type: "user", id: admin.id, label: admin.name },
+          object: { type: "user", id: user.id, label: user.name },
+          change: { from, to: user.role },
+        },
+        "/dashboard",
+        { user: user.id },
+        now
+      );
+  }
+
+  const emma = studentByEmail("emma.wilson@student.dev");
+
+  const seededNotifications: SeededNotification[] = [
+    {
+      when: new Date(hoursAgo(2)),
+      read: false,
+      raise: roleChanged(instructor3, UserRole.Student),
+    },
+    {
+      when: new Date(daysAgo(20)),
+      read: true,
+      raise: roleChanged(instructor2, UserRole.Student),
+    },
+    {
+      when: new Date(daysAgo(3)),
+      read: false,
+      raise: roleChanged(emma, UserRole.Instructor),
+    },
+  ];
+
+  for (const seeded of seededNotifications) {
+    db.transaction((tx) => {
+      seeded.raise(tx, seeded.when);
+      if (!seeded.read) return;
+      // Its recipients have since read it.
+      tx.update(schema.notifications)
+        .set({ readAt: seeded.when.toISOString() })
+        .where(eq(schema.notifications.createdAt, seeded.when.toISOString()))
+        .run();
+    });
+  }
+
+  console.log(`Created ${countRows(schema.notifications)} notifications.`);
 
   // ─── Summary ───
 

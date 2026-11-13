@@ -374,3 +374,34 @@ export const videoWatchEvents = sqliteTable("video_watch_events", {
     .notNull()
     .$defaultFn(() => new Date().toISOString()),
 });
+
+// One row per Notification Recipient: the row is the in-app channel. `data`
+// holds the facts, never wording (docs/adr/0013). There are deliberately no
+// foreign keys to the things a Notification mentions (including its actor),
+// so a Notification outlives them.
+export const notifications = sqliteTable(
+  "notifications",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    recipientId: integer("recipient_id")
+      .notNull()
+      .references(() => users.id),
+    actorId: integer("actor_id").notNull(),
+    kind: text("kind").notNull(),
+    data: text("data", { mode: "json" }).notNull().$type<unknown>(),
+    url: text("url").notNull(),
+    groupKey: text("group_key"),
+    createdAt: text("created_at").notNull(),
+    readAt: text("read_at"),
+  },
+  (table) => [
+    index("notifications_recipient_created_idx").on(
+      table.recipientId,
+      table.createdAt
+    ),
+    index("notifications_recipient_read_idx").on(
+      table.recipientId,
+      table.readAt
+    ),
+  ]
+);

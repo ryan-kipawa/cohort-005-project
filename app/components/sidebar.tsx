@@ -18,6 +18,7 @@ import {
   Sun,
   LogOut,
   Settings,
+  Inbox,
 } from "lucide-react";
 
 interface CurrentUser {
@@ -41,6 +42,7 @@ interface SidebarProps {
   currentUser: CurrentUser | null;
   recentCourses?: RecentCourse[];
   isTeamAdmin?: boolean;
+  unreadNotificationCount?: number;
 }
 
 interface NavItem {
@@ -117,6 +119,7 @@ export function Sidebar({
   currentUser,
   recentCourses = [],
   isTeamAdmin = false,
+  unreadNotificationCount = 0,
 }: SidebarProps) {
   const currentUserRole = currentUser?.role ?? null;
   const [isDark, setIsDark] = useState(false);
@@ -176,6 +179,30 @@ export function Sidebar({
           >
             <UsersRound className="size-4" />
             Team
+          </NavLink>
+        )}
+        {currentUser && (
+          <NavLink
+            to="/notifications"
+            className={({ isActive }) =>
+              cn(
+                "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                isActive
+                  ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                  : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+              )
+            }
+          >
+            <Inbox className="size-4" />
+            Notifications
+            {unreadNotificationCount > 0 && (
+              <span
+                className="ml-auto min-w-4 rounded-full bg-red-600 px-1 text-center text-[10px] font-bold leading-4 text-white"
+                aria-label={`${unreadNotificationCount} unread`}
+              >
+                {unreadNotificationCount > 99 ? "99+" : unreadNotificationCount}
+              </span>
+            )}
           </NavLink>
         )}
       </nav>
