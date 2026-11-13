@@ -3122,6 +3122,90 @@ This course is still in draft while the cluster examples are rewritten against t
     }
   );
 
+  // Lesson Thread Notifications, raised from the seeded Lesson Threads above.
+  function lessonThreadNotification(
+    kind: "lesson_thread_started" | "lesson_thread_reply" | "lesson_thread_answer" | "post_deleted",
+    actor: typeof schema.users.$inferSelect,
+    post: typeof schema.comments.$inferSelect,
+    recipientId: number
+  ): SeededNotification["raise"] {
+    return (tx, now) => {
+      const lesson = tx
+        .select({ id: schema.lessons.id, title: schema.lessons.title, slug: schema.courses.slug })
+        .from(schema.lessons)
+        .innerJoin(schema.modules, eq(schema.lessons.moduleId, schema.modules.id))
+        .innerJoin(schema.courses, eq(schema.modules.courseId, schema.courses.id))
+        .where(eq(schema.lessons.id, post.lessonId))
+        .get()!;
+      const isReply = post.parentId !== null;
+      notify(
+        tx,
+        actor.id,
+        kind,
+        {
+          actor: { type: "user", id: actor.id, label: actor.name },
+          object: { type: isReply ? "reply" : "lesson_thread", id: post.id, label: lesson.title },
+          target:
+            kind === "lesson_thread_reply" || kind === "lesson_thread_answer"
+              ? { type: "lesson_thread", id: post.parentId!, label: lesson.title }
+              : { type: "lesson", id: lesson.id, label: lesson.title },
+          excerpt: post.body.replace(/\s+/g, " ").trim().slice(0, 140),
+        },
+        `/courses/${lesson.slug}/lessons/${lesson.id}`,
+        { user: recipientId },
+        now
+      );
+    };
+  }
+
+  const c1q1Answer = db
+    .select()
+    .from(schema.comments)
+    .where(eq(schema.comments.parentId, c1q1.id))
+    .all()
+    .find((reply) => reply.userId === instructor1.id)!;
+  const c1q4Reply = db
+    .select()
+    .from(schema.comments)
+    .where(eq(schema.comments.parentId, c1q4.id))
+    .get()!;
+  // A reply Sarah removed as off-topic; only its Notification mentions it now.
+  const removedReply = db
+    .insert(schema.comments)
+    .values({
+      lessonId: c1q4.lessonId,
+      userId: students[2].id,
+      parentId: c1q4.id,
+      body: "Anyone want to buy my old course notes? DM me.",
+      createdAt: daysAgo(2),
+      deletedAt: daysAgo(1),
+    })
+    .returning()
+    .get();
+
+  seededNotifications.push(
+    {
+      when: new Date(hoursAgo(5)),
+      read: false,
+      raise: lessonThreadNotification("lesson_thread_started", students[1], c1q4, instructor1.id),
+    },
+    {
+      when: new Date(daysAgo(29)),
+      read: true,
+      raise: lessonThreadNotification("lesson_thread_answer", instructor1, c1q1Answer, students[0].id),
+    },
+    {
+      when: new Date(hoursAgo(3)),
+      read: false,
+      raise: lessonThreadNotification("lesson_thread_reply", students[0], c1q4Reply, students[1].id),
+    },
+    {
+      when: new Date(daysAgo(1)),
+      read: false,
+      raise: lessonThreadNotification("post_deleted", instructor1, removedReply, students[2].id),
+    }
+  );
+
   for (const seeded of seededNotifications) {
     db.transaction((tx) => {
       seeded.raise(tx, seeded.when);

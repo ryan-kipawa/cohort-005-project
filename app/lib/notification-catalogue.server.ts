@@ -158,6 +158,47 @@ export const catalogue = {
       body: "Your Team Licence can no longer be refunded.",
     }),
   },
+  lesson_thread_started: {
+    category: "Discussion",
+    object: ["lesson_thread"],
+    target: ["lesson"],
+    render: (data) => ({
+      title: `${data.actor.label} started a Lesson Thread on ${data.target?.label ?? "a lesson"}`,
+      body: data.excerpt,
+    }),
+  },
+  // The target's label is the lesson's title.
+  lesson_thread_reply: {
+    category: "Discussion",
+    object: ["reply"],
+    target: ["lesson_thread"],
+    render: (data) => ({
+      title: `${data.actor.label} replied to your Lesson Thread on ${data.target?.label ?? "a lesson"}`,
+      body: data.excerpt,
+    }),
+  },
+  // A reply by the course's Instructor or a Platform Admin. The target's label
+  // is the lesson's title.
+  lesson_thread_answer: {
+    category: "Discussion",
+    object: ["reply"],
+    target: ["lesson_thread"],
+    render: (data) => ({
+      title: `${data.actor.label} answered your Lesson Thread on ${data.target?.label ?? "a lesson"}`,
+      body: data.excerpt,
+    }),
+  },
+  // An opening post or reply deleted by the course's Instructor or a Platform
+  // Admin. The excerpt was captured before the deletion.
+  post_deleted: {
+    category: "Discussion",
+    object: ["lesson_thread", "reply"],
+    target: ["lesson"],
+    render: (data) => ({
+      title: `${data.actor.label} deleted your post on ${data.target?.label ?? "a lesson"}`,
+      body: data.excerpt,
+    }),
+  },
 } satisfies Record<string, CatalogueEntry>;
 
 export type NotificationKind = keyof typeof catalogue;
