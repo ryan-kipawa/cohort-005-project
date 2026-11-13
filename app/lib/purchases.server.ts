@@ -1,5 +1,6 @@
 import { and, eq } from "drizzle-orm";
-import { coupons, courses, enrollments, purchases, users } from "~/db/schema";
+import { coupons, enrollments, purchases } from "~/db/schema";
+import { courseLabel, ref, userRef } from "~/lib/notification-refs.server";
 import { notify, type Db, type Tx } from "~/lib/notifications.server";
 import { getSeatAvailability } from "~/lib/refunds.server";
 
@@ -33,33 +34,20 @@ export function enrollNewStudent(
     .returning()
     .get();
 
-  const student = tx
-    .select({ name: users.name })
-    .from(users)
-    .where(eq(users.id, studentId))
-    .get();
-  const course = tx
-    .select({ title: courses.title })
-    .from(courses)
-    .where(eq(courses.id, courseId))
-    .get();
-  const studentRef = {
-    type: "user" as const,
-    id: studentId,
-    label: student?.name ?? "A Student",
-  };
+  const studentRef = userRef(tx, studentId);
 
   notify(
     tx,
-    studentId,
-    "new_student",
     {
-      actor: studentRef,
-      object: studentRef,
-      target: { type: "course", id: courseId, label: course?.title ?? "your course" },
+      kind: "new_student",
+      data: {
+        actor: studentRef,
+        object: studentRef,
+        target: ref("course", courseId, courseLabel(tx, courseId)),
+      },
+      url: `/instructor/${courseId}/students`,
+      recipients: { courseInstructor: courseId },
     },
-    `/instructor/${courseId}/students`,
-    { courseInstructor: courseId },
     now
   );
 
@@ -167,32 +155,22 @@ export function claimSeat(
 
     const enrollment = enrollNewStudent(tx, studentId, seat.courseId, now);
 
-    const student = tx
-      .select({ name: users.name })
-      .from(users)
-      .where(eq(users.id, studentId))
-      .get();
-    const course = tx
-      .select({ title: courses.title })
-      .from(courses)
-      .where(eq(courses.id, seat.courseId))
-      .get();
-
     notify(
       tx,
-      studentId,
-      "seat_claimed",
       {
-        actor: { type: "user", id: studentId, label: student?.name ?? "A Student" },
-        object: { type: "seat", id: seat.id, label: code },
-        target: {
-          type: "team_licence",
-          id: teamLicence.id,
-          label: course?.title ?? "a course",
+        kind: "seat_claimed",
+        data: {
+          actor: userRef(tx, studentId),
+          object: ref("seat", seat.id, code),
+          target: ref(
+            "team_licence",
+            teamLicence.id,
+            courseLabel(tx, seat.courseId)
+          ),
         },
+        url: "/team",
+        recipients: { user: teamLicence.userId },
       },
-      "/team",
-      { user: teamLicence.userId },
       now
     );
 

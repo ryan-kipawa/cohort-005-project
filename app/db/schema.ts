@@ -7,6 +7,7 @@ import {
   uniqueIndex,
   type AnySQLiteColumn,
 } from "drizzle-orm/sqlite-core";
+import type { NotificationData } from "../lib/notification-catalogue.server";
 
 export enum UserRole {
   Student = "student",
@@ -388,7 +389,9 @@ export const notifications = sqliteTable(
       .references(() => users.id),
     actorId: integer("actor_id").notNull(),
     kind: text("kind").notNull(),
-    data: text("data", { mode: "json" }).notNull().$type<unknown>(),
+    // Typed so writes are checked. Rows written earlier may not match, so the
+    // inbox still validates `data` when it reads it (docs/adr/0013).
+    data: text("data", { mode: "json" }).notNull().$type<NotificationData>(),
     url: text("url").notNull(),
     groupKey: text("group_key"),
     createdAt: text("created_at").notNull(),

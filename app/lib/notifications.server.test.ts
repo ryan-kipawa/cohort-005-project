@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import { createTestDb, seedBaseData } from "~/test/setup";
 import * as schema from "~/db/schema";
 import { UserRole } from "~/db/schema";
@@ -13,11 +13,6 @@ import {
   openNotification,
 } from "./notifications.server";
 import { changeUserRole } from "./users.server";
-import {
-  catalogue,
-  type CatalogueEntry,
-  type NotificationKind,
-} from "./notification-catalogue.server";
 
 type TestDb = ReturnType<typeof createTestDb>;
 
@@ -186,63 +181,57 @@ describe("retention", () => {
 });
 
 // ─── Filters, Mark all as read and paging ───
-// Only role_changed (Account) exists in the real catalogue here, so these
-// tests register test-only kinds in other categories.
-
-const testKinds: Record<string, CatalogueEntry> = {
-  test_money: {
-    category: "Money",
-    object: ["refund_request"],
-    render: (data) => ({ title: `Money: ${data.object.label}` }),
-  },
-  test_discussion: {
-    category: "Discussion",
-    object: ["reply"],
-    target: ["lesson_thread"],
-    groupBy: "target",
-    render: (data, group) => ({
-      title: `${group.length} replies in ${data.target?.label}`,
-    }),
-  },
-};
-
-beforeAll(() => {
-  Object.assign(catalogue, testKinds);
-});
-
-afterAll(() => {
-  for (const kind of Object.keys(testKinds)) {
-    delete (catalogue as Record<string, unknown>)[kind];
-  }
-});
+// These raise real kinds directly: refund_request_declined (Money),
+// lesson_thread_reply (Discussion) and new_student (Courses, grouped by
+// course).
 
 function raiseMoney(recipientId: number, label: string, when = NOW) {
   notify(
     db,
-    platformAdmin.id,
-    "test_money" as NotificationKind,
     {
-      actor: { type: "user", id: platformAdmin.id, label: "Pat Admin" },
-      object: { type: "refund_request", id: 1, label },
+      kind: "refund_request_declined",
+      data: {
+        actor: { type: "user", id: platformAdmin.id, label: "Pat Admin" },
+        object: { type: "refund_request", id: 1, label },
+        target: { type: "individual_purchase", id: 1, label },
+      },
+      url: "/settings",
+      recipients: { user: recipientId },
     },
-    "/money",
-    { user: recipientId },
     when
   );
 }
 
-function raiseReply(recipientId: number, threadId: number, when = NOW) {
+function raiseReply(recipientId: number, lessonTitle: string, when = NOW) {
   notify(
     db,
-    platformAdmin.id,
-    "test_discussion" as NotificationKind,
     {
-      actor: { type: "user", id: platformAdmin.id, label: "Pat Admin" },
-      object: { type: "reply", id: 1, label: "A reply" },
-      target: { type: "lesson_thread", id: threadId, label: `Thread ${threadId}` },
+      kind: "lesson_thread_reply",
+      data: {
+        actor: { type: "user", id: platformAdmin.id, label: "Pat Admin" },
+        object: { type: "reply", id: 1, label: lessonTitle },
+        target: { type: "lesson_thread", id: 1, label: lessonTitle },
+      },
+      url: "/thread",
+      recipients: { user: recipientId },
     },
-    "/thread",
-    { user: recipientId },
+    when
+  );
+}
+
+function raiseNewStudent(recipientId: number, studentName: string, when = NOW) {
+  notify(
+    db,
+    {
+      kind: "new_student",
+      data: {
+        actor: { type: "user", id: platformAdmin.id, label: studentName },
+        object: { type: "user", id: platformAdmin.id, label: studentName },
+        target: { type: "course", id: base.course.id, label: "Test Course" },
+      },
+      url: "/students",
+      recipients: { user: recipientId },
+    },
     when
   );
 }
@@ -255,7 +244,7 @@ describe("filtering by Notification Category", () => {
   it("offers only the categories the Notification Recipient has Notifications in", () => {
     raiseMoney(base.user.id, "Refund 1");
     changeUserRole(db, platformAdmin.id, base.user.id, UserRole.Instructor, NOW);
-    raiseReply(base.instructor.id, 1);
+    raiseReply(base.instructor.id, "Closures");
 
     expect(getNotificationInboxPage(db, base.user.id, NOW).categories).toEqual([
       "Money",
@@ -275,7 +264,7 @@ describe("filtering by Notification Category", () => {
       category: "Money",
     });
 
-    expect(allTitles(page)).toEqual(["Money: Refund 1"]);
+    expect(allTitles(page)).toEqual(["Your refund for Refund 1 was declined"]);
     expect(page.categories).toEqual(["Money", "Account"]);
   });
 });
@@ -289,7 +278,7 @@ describe("Unread only", () => {
 
     const page = getNotificationInboxPage(db, base.user.id, NOW, { unreadOnly: true });
 
-    expect(allTitles(page)).toEqual(["Money: Refund 1"]);
+    expect(allTitles(page)).toEqual(["Your refund for Refund 1 was declined"]);
   });
 
   it("combines with a category", () => {
@@ -304,14 +293,14 @@ describe("Unread only", () => {
       unreadOnly: true,
     });
 
-    expect(allTitles(page)).toEqual(["Money: Refund 1"]);
+    expect(allTitles(page)).toEqual(["Your refund for Refund 1 was declined"]);
   });
 });
 
 describe("Mark all as read", () => {
   it("with a category chosen, marks only that category's Notifications read", () => {
     raiseMoney(base.user.id, "Refund 1");
-    raiseReply(base.user.id, 1);
+    raiseReply(base.user.id, "Closures");
     changeUserRole(db, platformAdmin.id, base.user.id, UserRole.Instructor, NOW);
 
     markAllNotificationsRead(db, base.user.id, "Money", NOW);
@@ -319,14 +308,14 @@ describe("Mark all as read", () => {
     const unread = getNotificationInboxPage(db, base.user.id, NOW, { unreadOnly: true });
     expect(allTitles(unread)).toEqual([
       "Your role was changed from Student to Instructor",
-      "1 replies in Thread 1",
+      "Pat Admin replied to your Lesson Thread on Closures",
     ]);
   });
 
   it("with All chosen, marks everything read", () => {
     raiseMoney(base.user.id, "Refund 1");
-    raiseReply(base.user.id, 1);
-    raiseReply(base.user.id, 1);
+    raiseReply(base.user.id, "Closures");
+    raiseReply(base.user.id, "Closures");
     changeUserRole(db, platformAdmin.id, base.user.id, UserRole.Instructor, NOW);
 
     markAllNotificationsRead(db, base.user.id, undefined, NOW);
@@ -348,21 +337,21 @@ describe("Mark all as read", () => {
 
 describe("paging", () => {
   it("shows 50 rows, a grouped row counting once, and Load more shows the next 50", () => {
-    // 3 replies to one thread make one row, the newest.
-    for (let i = 0; i < 3; i++) raiseReply(base.user.id, 1, NOW);
+    // 3 new Students on one course make one row, the newest.
+    for (const name of ["Ann", "Bob", "Cal"]) raiseNewStudent(base.user.id, name, NOW);
     for (let i = 1; i <= 60; i++) {
       raiseMoney(base.user.id, `Refund ${i}`, hoursBefore(NOW, i));
     }
 
     const first = getNotificationInboxPage(db, base.user.id, NOW);
     expect(allTitles(first)).toHaveLength(50);
-    expect(allTitles(first)[0]).toBe("3 replies in Thread 1");
-    expect(allTitles(first)[49]).toBe("Money: Refund 49");
+    expect(allTitles(first)[0]).toBe("Cal and 2 others joined Test Course");
+    expect(allTitles(first)[49]).toBe("Your refund for Refund 49 was declined");
     expect(first.hasMore).toBe(true);
 
     const more = getNotificationInboxPage(db, base.user.id, NOW, { limit: 100 });
     expect(allTitles(more)).toHaveLength(61);
-    expect(allTitles(more)[60]).toBe("Money: Refund 60");
+    expect(allTitles(more)[60]).toBe("Your refund for Refund 60 was declined");
     expect(more.hasMore).toBe(false);
   });
 });

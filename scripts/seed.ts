@@ -15,6 +15,7 @@ import {
   TeamMemberRole,
 } from "../app/db/schema";
 import { notify, type Tx } from "../app/lib/notifications.server";
+import { excerpt, ref, userRef } from "../app/lib/notification-refs.server";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -2832,6 +2833,59 @@ This course is still in draft while the cluster examples are rewritten against t
 
   console.log("Created Marta's Refund Request on her Team Licence.");
 
+  // ─── Decided Refund Requests ───
+  // One approved and one declined, so the buyers have a Notification of each.
+  // James bought course 3 and was refunded, so he has no Enrollment on it.
+  // Sophia's request on course 1 was declined, so she keeps hers.
+
+  const [jamesCourse3Purchase] = db
+    .insert(schema.purchases)
+    .values({
+      userId: students[1].id,
+      courseId: course3.id,
+      amountPaid: 4900,
+      country: "IN",
+      createdAt: daysAgo(10),
+    })
+    .returning()
+    .all();
+  const jamesRefundRequest = db
+    .insert(schema.refunds)
+    .values({
+      purchaseId: jamesCourse3Purchase.id,
+      status: RefundStatus.Approved,
+      reason: "I bought it by mistake; I meant to buy it for my team.",
+      requestedAt: daysAgo(8),
+      amountRefunded: jamesCourse3Purchase.amountPaid,
+      resolvedAt: daysAgo(7),
+      resolvedByUserId: admin.id,
+    })
+    .returning()
+    .get();
+
+  const sophiaPurchase = db
+    .select()
+    .from(schema.purchases)
+    .where(eq(schema.purchases.userId, students[4].id))
+    .get();
+  if (!sophiaPurchase) throw new Error("Sophia's purchase was not seeded");
+  const sophiaRefundRequest = db
+    .insert(schema.refunds)
+    .values({
+      purchaseId: sophiaPurchase.id,
+      status: RefundStatus.Declined,
+      reason: "The pace is too slow for me.",
+      requestedAt: daysAgo(12),
+      decisionNote:
+        "You have completed most of the lessons, which is past what our refund policy covers.",
+      resolvedAt: daysAgo(11),
+      resolvedByUserId: admin.id,
+    })
+    .returning()
+    .get();
+
+  console.log("Created an approved and a declined Refund Request.");
+
   // ─── Flush watch events ───
   // Batched: the heartbeat makes these by far the largest table, and one
   // statement per row would dominate the seed's runtime.
@@ -2862,15 +2916,16 @@ This course is still in draft while the cluster examples are rewritten against t
     return (tx, now) =>
       notify(
         tx,
-        admin.id,
-        "role_changed",
         {
-          actor: { type: "user", id: admin.id, label: admin.name },
-          object: { type: "user", id: user.id, label: user.name },
-          change: { from, to: user.role },
+          kind: "role_changed",
+          data: {
+            actor: userRef(tx, admin.id),
+            object: ref("user", user.id, user.name),
+            change: { from, to: user.role },
+          },
+          url: "/dashboard",
+          recipients: { user: user.id },
         },
-        "/dashboard",
-        { user: user.id },
         now
       );
   }
@@ -2887,24 +2942,49 @@ This course is still in draft while the cluster examples are rewritten against t
     return (tx, now) =>
       notify(
         tx,
-        buyer.id,
-        "refund_request_raised",
         {
-          actor: { type: "user", id: buyer.id, label: buyer.name },
-          object: {
-            type: "refund_request",
-            id: refundRequest.id,
-            label: course.title,
+          kind: "refund_request_raised",
+          data: {
+            actor: userRef(tx, buyer.id),
+            object: ref("refund_request", refundRequest.id, course.title),
+            target: ref(purchaseKind, refundRequest.purchaseId, course.title),
+            excerpt: refundRequest.reason,
           },
-          target: {
-            type: purchaseKind,
-            id: refundRequest.purchaseId,
-            label: course.title,
-          },
-          excerpt: refundRequest.reason,
+          url: "/admin/refunds",
+          recipients: { platformAdmins: true },
         },
-        "/admin/refunds",
-        { platformAdmins: true },
+        now
+      );
+  }
+
+  // A Platform Admin deciding an Individual Purchase's Refund Request
+  // notifies its buyer.
+  function refundRequestDecided(
+    kind: "refund_request_approved" | "refund_request_declined",
+    buyerId: number,
+    refundRequest: typeof schema.refunds.$inferSelect,
+    course: typeof schema.courses.$inferSelect
+  ): SeededNotification["raise"] {
+    return (tx, now) =>
+      notify(
+        tx,
+        {
+          kind,
+          data: {
+            actor: userRef(tx, admin.id),
+            object: ref("refund_request", refundRequest.id, course.title),
+            target: ref(
+              "individual_purchase",
+              refundRequest.purchaseId,
+              course.title
+            ),
+            ...(kind === "refund_request_declined" && refundRequest.decisionNote
+              ? { excerpt: refundRequest.decisionNote }
+              : {}),
+          },
+          url: "/settings",
+          recipients: { user: buyerId },
+        },
         now
       );
   }
@@ -2945,6 +3025,26 @@ This course is still in draft while the cluster examples are rewritten against t
         "team_licence"
       ),
     },
+    {
+      when: new Date(daysAgo(7)),
+      read: false,
+      raise: refundRequestDecided(
+        "refund_request_approved",
+        students[1].id,
+        jamesRefundRequest,
+        course3
+      ),
+    },
+    {
+      when: new Date(daysAgo(11)),
+      read: true,
+      raise: refundRequestDecided(
+        "refund_request_declined",
+        students[4].id,
+        sophiaRefundRequest,
+        course1
+      ),
+    },
   ];
 
   // Course status and archive Notifications. Course 2 was archived by the
@@ -2958,15 +3058,16 @@ This course is still in draft while the cluster examples are rewritten against t
     return (tx, now) =>
       notify(
         tx,
-        admin.id,
-        "course_status_changed",
         {
-          actor: { type: "user", id: admin.id, label: admin.name },
-          object: { type: "course", id: course.id, label: course.title },
-          change: { from, to },
+          kind: "course_status_changed",
+          data: {
+            actor: userRef(tx, admin.id),
+            object: ref("course", course.id, course.title),
+            change: { from, to },
+          },
+          url: `/instructor/${course.id}`,
+          recipients: { user: course.instructorId },
         },
-        `/instructor/${course.id}`,
-        { user: course.instructorId },
         now
       );
   }
@@ -2977,14 +3078,15 @@ This course is still in draft while the cluster examples are rewritten against t
     return (tx, now) =>
       notify(
         tx,
-        admin.id,
-        "course_archived",
         {
-          actor: { type: "user", id: admin.id, label: admin.name },
-          object: { type: "course", id: course.id, label: course.title },
+          kind: "course_archived",
+          data: {
+            actor: userRef(tx, admin.id),
+            object: ref("course", course.id, course.title),
+          },
+          url: `/courses/${course.slug}`,
+          recipients: { courseStudents: course.id },
         },
-        `/courses/${course.slug}`,
-        { courseStudents: course.id },
         now
       );
   }
@@ -2997,25 +3099,23 @@ This course is still in draft while the cluster examples are rewritten against t
     student: typeof schema.users.$inferSelect,
     course: typeof schema.courses.$inferSelect
   ): SeededNotification["raise"] {
-    const studentRef = {
-      type: "user" as const,
-      id: student.id,
-      label: student.name,
-    };
-    return (tx, now) =>
+    return (tx, now) => {
+      const studentRef = userRef(tx, student.id);
       notify(
         tx,
-        student.id,
-        "new_student",
         {
-          actor: studentRef,
-          object: studentRef,
-          target: { type: "course", id: course.id, label: course.title },
+          kind: "new_student",
+          data: {
+            actor: studentRef,
+            object: studentRef,
+            target: ref("course", course.id, course.title),
+          },
+          url: `/instructor/${course.id}/students`,
+          recipients: { courseInstructor: course.id },
         },
-        `/instructor/${course.id}/students`,
-        { courseInstructor: course.id },
         now
       );
+    };
   }
 
   // Both raised by the same archive, a millisecond apart so marking the first
@@ -3064,19 +3164,16 @@ This course is still in draft while the cluster examples are rewritten against t
     return (tx, now) =>
       notify(
         tx,
-        student.id,
-        "seat_claimed",
         {
-          actor: { type: "user", id: student.id, label: student.name },
-          object: { type: "seat", id: seat.id, label: seat.code },
-          target: {
-            type: "team_licence",
-            id: teamPurchase.id,
-            label: course2.title,
+          kind: "seat_claimed",
+          data: {
+            actor: userRef(tx, student.id),
+            object: ref("seat", seat.id, seat.code),
+            target: ref("team_licence", teamPurchase.id, course2.title),
           },
+          url: "/team",
+          recipients: { user: teamPurchase.userId },
         },
-        "/team",
-        { user: teamPurchase.userId },
         now
       );
   }
@@ -3136,23 +3233,36 @@ This course is still in draft while the cluster examples are rewritten against t
         .innerJoin(schema.modules, eq(schema.lessons.moduleId, schema.modules.id))
         .innerJoin(schema.courses, eq(schema.modules.courseId, schema.courses.id))
         .where(eq(schema.lessons.id, post.lessonId))
-        .get()!;
-      const isReply = post.parentId !== null;
+        .get();
+      if (!lesson) throw new Error(`Lesson ${post.lessonId} was not seeded`);
+
+      const inThread = kind === "lesson_thread_reply" || kind === "lesson_thread_answer";
+      let target;
+      if (!inThread) {
+        target = ref("lesson", lesson.id, lesson.title);
+      } else if (post.parentId === null) {
+        throw new Error(`A ${kind} Notification needs a reply, not an opening post`);
+      } else {
+        target = ref("lesson_thread", post.parentId, lesson.title);
+      }
+
       notify(
         tx,
-        actor.id,
-        kind,
         {
-          actor: { type: "user", id: actor.id, label: actor.name },
-          object: { type: isReply ? "reply" : "lesson_thread", id: post.id, label: lesson.title },
-          target:
-            kind === "lesson_thread_reply" || kind === "lesson_thread_answer"
-              ? { type: "lesson_thread", id: post.parentId!, label: lesson.title }
-              : { type: "lesson", id: lesson.id, label: lesson.title },
-          excerpt: post.body.replace(/\s+/g, " ").trim().slice(0, 140),
+          kind,
+          data: {
+            actor: userRef(tx, actor.id),
+            object: ref(
+              post.parentId === null ? "lesson_thread" : "reply",
+              post.id,
+              lesson.title
+            ),
+            target,
+            excerpt: excerpt(post.body),
+          },
+          url: `/courses/${lesson.slug}/lessons/${lesson.id}`,
+          recipients: { user: recipientId },
         },
-        `/courses/${lesson.slug}/lessons/${lesson.id}`,
-        { user: recipientId },
         now
       );
     };
@@ -3163,12 +3273,14 @@ This course is still in draft while the cluster examples are rewritten against t
     .from(schema.comments)
     .where(eq(schema.comments.parentId, c1q1.id))
     .all()
-    .find((reply) => reply.userId === instructor1.id)!;
+    .find((reply) => reply.userId === instructor1.id);
+  if (!c1q1Answer) throw new Error("Sarah's answer to c1q1 was not seeded");
   const c1q4Reply = db
     .select()
     .from(schema.comments)
     .where(eq(schema.comments.parentId, c1q4.id))
-    .get()!;
+    .get();
+  if (!c1q4Reply) throw new Error("The reply to c1q4 was not seeded");
   // A reply Sarah removed as off-topic; only its Notification mentions it now.
   const removedReply = db
     .insert(schema.comments)

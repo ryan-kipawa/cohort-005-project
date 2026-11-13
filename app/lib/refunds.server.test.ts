@@ -554,7 +554,27 @@ describe("Refund Request Notifications", () => {
     ).toEqual([]);
   });
 
-  it("tells a Team Admin that an approved Team Licence ended its Unclaimed Seats", () => {
+  it("tells a buyer who also holds a Claimed Seat that they keep their Enrollment", () => {
+    const priya = addLearner("Priya");
+    const { seats } = buySeats(priya.id, 2);
+    claimSeat(seats[0].id, base.user.id);
+    const purchase = buyForSelf(base.user.id);
+    const id = raise(purchase.id, base.user.id);
+
+    approveRefundRequest(db, id, platformAdmin.id, null, NOW);
+
+    expect(inbox(base.user.id)).toEqual([
+      expect.objectContaining({
+        kind: "refund_request_approved_enrollment_kept",
+        category: "Money",
+        title: "Your refund for Test Course was approved",
+        body: "You keep your Enrollment in Test Course through your Claimed Seat. The full amount you paid is on its way back to you.",
+        url: "/settings",
+      }),
+    ]);
+  });
+
+  it("tells a Team Admin that an approved Team Licence refunded its Unclaimed Seats", () => {
     const priya = addLearner("Priya");
     const { purchase } = buySeats(priya.id, 2);
     const id = raise(purchase.id, priya.id);
@@ -566,7 +586,7 @@ describe("Refund Request Notifications", () => {
         kind: "refund_request_approved",
         category: "Money",
         title: "Your refund for Test Course was approved",
-        body: "The Unclaimed Seats on your Team Licence for Test Course can no longer be claimed. The full amount you paid is on its way back to you.",
+        body: "The Unclaimed Seats on your Team Licence for Test Course were refunded and can no longer be claimed. The full amount you paid is on its way back to you.",
         url: "/team",
       }),
     ]);

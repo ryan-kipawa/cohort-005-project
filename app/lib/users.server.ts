@@ -1,5 +1,6 @@
 import { eq } from "drizzle-orm";
 import { users, type UserRole } from "~/db/schema";
+import { ref, userRef } from "~/lib/notification-refs.server";
 import { notify, type Db } from "~/lib/notifications.server";
 
 // ─── Users ───
@@ -31,27 +32,18 @@ export function changeUserRole(
 
     if (user.role === role) return updated;
 
-    const platformAdmin = tx
-      .select({ name: users.name })
-      .from(users)
-      .where(eq(users.id, platformAdminId))
-      .get();
-
     notify(
       tx,
-      platformAdminId,
-      "role_changed",
       {
-        actor: {
-          type: "user",
-          id: platformAdminId,
-          label: platformAdmin?.name ?? "A Platform Admin",
+        kind: "role_changed",
+        data: {
+          actor: userRef(tx, platformAdminId),
+          object: ref("user", user.id, user.name),
+          change: { from: user.role, to: role },
         },
-        object: { type: "user", id: user.id, label: user.name },
-        change: { from: user.role, to: role },
+        url: "/dashboard",
+        recipients: { user: user.id },
       },
-      "/dashboard",
-      { user: user.id },
       now
     );
 

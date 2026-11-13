@@ -94,33 +94,42 @@ function resolveRecipients(
 
 // ─── Raising a Notification ───
 
+/** A Notification to raise: what happened, where it links, and who it is for. */
+export type NotificationToRaise = {
+  kind: NotificationKind;
+  /** The facts. `data.actor` is the user whose action raised it. */
+  data: NotificationData;
+  /** The path it links to, stored as a fact about where the thing lives. */
+  url: string;
+  recipients: RecipientSelector;
+};
+
 /**
  * Raises a Notification of `kind` for everyone `recipients` selects, except
- * the actor, whose action raised it. Call it inside the business transaction
- * so a Notification exists exactly when the event does. Synchronous, with no
- * network I/O.
+ * the actor (`data.actor`), whose action raised it. Call it inside the
+ * business transaction so a Notification exists exactly when the event does.
+ * Synchronous, with no network I/O.
  *
- * `url` is the path the Notification links to, stored as a fact about where
- * the thing lives. Also prunes each Notification Recipient's Notifications
- * older than the retention period.
+ * Also prunes each Notification Recipient's Notifications older than the
+ * retention period.
  */
 export function notify(
   tx: Queryable,
-  actorId: number,
-  kind: NotificationKind,
-  data: NotificationData,
-  url: string,
-  recipients: RecipientSelector,
+  { kind, data, url, recipients }: NotificationToRaise,
   now: Date
 ): void {
   const entry = catalogueEntry(kind);
 
+  if (data.actor.type !== "user") {
+    throw new Error(`${kind} must have a user as its actor`);
+  }
   if (!entry.object.includes(data.object.type)) {
     throw new Error(`${kind} cannot have a ${data.object.type} as its object`);
   }
   if (data.target && !entry.target?.includes(data.target.type)) {
     throw new Error(`${kind} cannot have a ${data.target.type} as its target`);
   }
+  const actorId = data.actor.id;
 
   const recipientIds = resolveRecipients(tx, recipients).filter(
     (id) => id !== actorId

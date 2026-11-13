@@ -1,23 +1,15 @@
 import { eq } from "drizzle-orm";
 import { comments, courses, lessons, modules, users, UserRole } from "~/db/schema";
 import { MAX_COMMENT_LENGTH, MIN_COMMENT_LENGTH } from "~/lib/comments";
+import { excerpt, ref, userRef } from "~/lib/notification-refs.server";
 import { notify, type Db, type Tx } from "~/lib/notifications.server";
 
 // ─── Lesson Threads ───
 // Starting a Lesson Thread, replying in one, and editing or deleting a post,
 // each with the Notifications it raises in the same transaction. Every
 // function takes the database first and `now` last, so tests can hand in an
-// in-memory one. Routes keep authorization and form parsing.
-
-/** How much of a post a Notification quotes. */
-const EXCERPT_LENGTH = 140;
-
-function excerpt(body: string): string {
-  const flat = body.replace(/\s+/g, " ").trim();
-  return flat.length <= EXCERPT_LENGTH
-    ? flat
-    : `${flat.slice(0, EXCERPT_LENGTH - 1).trimEnd()}…`;
-}
+// in-memory one. Routes keep authorization (who may edit or delete a post)
+// and form parsing.
 
 function assertValidBody(body: string) {
   const trimmed = body.trim();
@@ -55,17 +47,14 @@ function getUser(tx: Tx, userId: number) {
   return tx.select().from(users).where(eq(users.id, userId)).get();
 }
 
-function userRef(tx: Tx, userId: number) {
-  return { type: "user" as const, id: userId, label: getUser(tx, userId)?.name ?? "Someone" };
-}
-
 function lessonRef(lesson: LessonContext) {
-  return { type: "lesson" as const, id: lesson.lessonId, label: lesson.lessonTitle };
+  return ref("lesson", lesson.lessonId, lesson.lessonTitle);
 }
 
 /**
- * Someone starts a Lesson Thread under a lesson. The course's Instructor gets
- * a lesson_thread_started Notification, unless they started it.
+ * Someone starts a Lesson Thread under a lesson. When a Student started it,
+ * the course's Instructor gets a lesson_thread_started Notification. A thread
+ * started by the Instructor or a Platform Admin raises nothing.
  */
 export function startLessonThread(
   db: Db,
@@ -86,18 +75,21 @@ export function startLessonThread(
       .returning()
       .get();
 
+    if (speaksForCourse(tx, userId, lesson)) return openingPost;
+
     notify(
       tx,
-      userId,
-      "lesson_thread_started",
       {
-        actor: userRef(tx, userId),
-        object: { type: "lesson_thread", id: openingPost.id, label: lesson.lessonTitle },
-        target: lessonRef(lesson),
-        excerpt: excerpt(trimmed),
+        kind: "lesson_thread_started",
+        data: {
+          actor: userRef(tx, userId),
+          object: ref("lesson_thread", openingPost.id, lesson.lessonTitle),
+          target: lessonRef(lesson),
+          excerpt: excerpt(trimmed),
+        },
+        url: lessonUrl(lesson),
+        recipients: { user: lesson.instructorId },
       },
-      lessonUrl(lesson),
-      { user: lesson.instructorId },
       now
     );
 
@@ -152,16 +144,19 @@ export function replyToLessonThread(
 
     notify(
       tx,
-      userId,
-      speaksForCourse(tx, userId, lesson) ? "lesson_thread_answer" : "lesson_thread_reply",
       {
-        actor: userRef(tx, userId),
-        object: { type: "reply", id: reply.id, label: lesson.lessonTitle },
-        target: { type: "lesson_thread", id: openingPost.id, label: lesson.lessonTitle },
-        excerpt: excerpt(trimmed),
+        kind: speaksForCourse(tx, userId, lesson)
+          ? "lesson_thread_answer"
+          : "lesson_thread_reply",
+        data: {
+          actor: userRef(tx, userId),
+          object: ref("reply", reply.id, lesson.lessonTitle),
+          target: ref("lesson_thread", openingPost.id, lesson.lessonTitle),
+          excerpt: excerpt(trimmed),
+        },
+        url: lessonUrl(lesson),
+        recipients: { user: openingPost.userId },
       },
-      lessonUrl(lesson),
-      { user: openingPost.userId },
       now
     );
 
@@ -178,7 +173,10 @@ function getPost(tx: Tx, postId: number) {
   return tx.select().from(comments).where(eq(comments.id, postId)).get();
 }
 
-/** The author edits their opening post or reply. Raises nothing. */
+/**
+ * The author edits their opening post or reply. Raises nothing. The route
+ * checks that `userId` is the author.
+ */
 export function editLessonThreadPost(
   db: Db,
   userId: number,
@@ -192,9 +190,6 @@ export function editLessonThreadPost(
     const post = getPost(tx, postId);
     if (!post) throw new Error("Comment not found");
     if (post.deletedAt !== null) throw new Error("Comment has been deleted");
-    if (post.userId !== userId) {
-      throw new Error("You can only edit your own comments");
-    }
 
     return tx
       .update(comments)
@@ -208,7 +203,8 @@ export function editLessonThreadPost(
 /**
  * The author, the course's Instructor or a Platform Admin deletes an opening
  * post or reply. When it wasn't the author, the author gets a post_deleted
- * Notification quoting what they wrote, captured before the deletion.
+ * Notification quoting what they wrote, captured before the deletion. The
+ * route checks that `userId` may delete it.
  */
 export function deleteLessonThreadPost(
   db: Db,
@@ -223,9 +219,6 @@ export function deleteLessonThreadPost(
     const lesson = getLessonContext(tx, post.lessonId);
     if (!lesson) throw new Error("Lesson not found");
 
-    if (post.userId !== userId && !speaksForCourse(tx, userId, lesson)) {
-      throw new Error("You can only delete your own comments");
-    }
     if (post.deletedAt !== null) return post;
 
     const deleted = tx
@@ -237,20 +230,21 @@ export function deleteLessonThreadPost(
 
     notify(
       tx,
-      userId,
-      "post_deleted",
       {
-        actor: userRef(tx, userId),
-        object: {
-          type: post.parentId === null ? "lesson_thread" : "reply",
-          id: post.id,
-          label: lesson.lessonTitle,
+        kind: "post_deleted",
+        data: {
+          actor: userRef(tx, userId),
+          object: ref(
+            post.parentId === null ? "lesson_thread" : "reply",
+            post.id,
+            lesson.lessonTitle
+          ),
+          target: lessonRef(lesson),
+          excerpt: excerpt(post.body),
         },
-        target: lessonRef(lesson),
-        excerpt: excerpt(post.body),
+        url: lessonUrl(lesson),
+        recipients: { user: post.userId },
       },
-      lessonUrl(lesson),
-      { user: post.userId },
       now
     );
 

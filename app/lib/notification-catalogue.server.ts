@@ -99,13 +99,24 @@ export const catalogue = {
       const course = data.object.label;
       const ended =
         data.target?.type === "team_licence"
-          ? `The Unclaimed Seats on your Team Licence for ${course} can no longer be claimed.`
+          ? `The Unclaimed Seats on your Team Licence for ${course} were refunded and can no longer be claimed.`
           : `Your Enrollment in ${course} has ended.`;
       return {
         title: `Your refund for ${course} was approved`,
         body: `${ended} The full amount you paid is on its way back to you.`,
       };
     },
+  },
+  // An approved Individual Purchase whose buyer also holds a Claimed Seat for
+  // the course, so their Enrollment was kept (docs/adr/0004).
+  refund_request_approved_enrollment_kept: {
+    category: "Money",
+    object: ["refund_request"],
+    target: ["individual_purchase"],
+    render: (data) => ({
+      title: `Your refund for ${data.object.label} was approved`,
+      body: `You keep your Enrollment in ${data.object.label} through your Claimed Seat. The full amount you paid is on its way back to you.`,
+    }),
   },
   refund_request_declined: {
     category: "Money",

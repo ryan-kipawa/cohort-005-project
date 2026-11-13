@@ -843,6 +843,9 @@ export async function action({ params, request }: Route.ActionArgs) {
         if (!existing || existing.lessonId !== lessonId) {
           throw data("Comment not found", { status: 404 });
         }
+        if (existing.userId !== currentUserId) {
+          throw data("You can only edit your own comments", { status: 403 });
+        }
         editLessonThreadPost(
           db,
           currentUserId,
@@ -861,8 +864,9 @@ export async function action({ params, request }: Route.ActionArgs) {
       if (!existing || existing.lessonId !== lessonId) {
         throw data("Comment not found", { status: 404 });
       }
+      // The author, the course's Instructor or a Platform Admin.
       if (existing.userId !== currentUserId && !access.isStaff) {
-        return { ok: false, error: "You can only delete your own comments" };
+        throw data("You can only delete your own comments", { status: 403 });
       }
       deleteLessonThreadPost(db, currentUserId, parsed.data.commentId, new Date());
       return { ok: true };

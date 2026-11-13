@@ -69,6 +69,19 @@ describe("lesson_thread_started", () => {
 
     expect(inbox(platformAdmin.id)).toEqual([]);
   });
+
+  it("raises nothing when a Platform Admin starts the Lesson Thread", () => {
+    startLessonThread(db, platformAdmin.id, lesson.id, "A note for everyone", NOW);
+
+    expect(inbox(base.instructor.id)).toEqual([]);
+  });
+
+  it("raises nothing when the course's Instructor starts the Lesson Thread", () => {
+    startLessonThread(db, base.instructor.id, lesson.id, "Welcome to the lesson", NOW);
+
+    expect(inbox(base.instructor.id)).toEqual([]);
+    expect(inbox(platformAdmin.id)).toEqual([]);
+  });
 });
 
 function addStudent(name: string, email: string) {
@@ -183,16 +196,6 @@ describe("post_deleted", () => {
 
     deleteLessonThreadPost(db, base.user.id, thread.id, NOW);
 
-    expect(inbox(base.user.id)).toEqual([]);
-  });
-
-  it("won't let a Student delete someone else's post", () => {
-    const olive = addStudent("Olive Other", "olive@example.com");
-    const thread = startLessonThread(db, base.user.id, lesson.id, "A question", NOW);
-
-    expect(() => deleteLessonThreadPost(db, olive.id, thread.id, NOW)).toThrow(
-      "You can only delete your own comments"
-    );
     expect(inbox(base.user.id)).toEqual([]);
   });
 });

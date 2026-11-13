@@ -17,6 +17,7 @@ import {
   RefundStatus,
 } from "~/db/schema";
 import { formatPrice } from "~/lib/utils";
+import { courseLabel, ref, userRef } from "~/lib/notification-refs.server";
 import { notify } from "~/lib/notifications.server";
 import {
   REFUND_COMPLETION_LIMIT,
@@ -393,20 +394,17 @@ export function raiseRefundRequest(
 
     notify(
       tx,
-      buyer.id,
-      "refund_request_raised",
       {
-        actor: { type: "user", id: buyer.id, label: buyer.name },
-        object: {
-          type: "refund_request",
-          id: refundRequest.id,
-          label: course.title,
+        kind: "refund_request_raised",
+        data: {
+          actor: userRef(tx, buyer.id),
+          object: ref("refund_request", refundRequest.id, course.title),
+          target: ref(kind, purchase.id, course.title),
+          excerpt: reason,
         },
-        target: { type: kind, id: purchase.id, label: course.title },
-        excerpt: reason,
+        url: "/admin/refunds",
+        recipients: { platformAdmins: true },
       },
-      "/admin/refunds",
-      { platformAdmins: true },
       now
     );
 
@@ -648,6 +646,7 @@ export function approveRefundRequest(
 
     const { purchase } = found;
     const seats = getSeats(tx, purchase.id);
+    let enrollmentKept = false;
 
     if (kindOf(seats) === "team_licence") {
       if (seats.some(isClaimed)) {
@@ -678,6 +677,7 @@ export function approveRefundRequest(
         )
         .get();
 
+      enrollmentKept = !!claimedSeat;
       if (!claimedSeat) {
         tx.delete(enrollments)
           .where(
@@ -703,7 +703,9 @@ export function approveRefundRequest(
 
     notifyBuyerOfDecision(
       tx,
-      "refund_request_approved",
+      enrollmentKept
+        ? "refund_request_approved_enrollment_kept"
+        : "refund_request_approved",
       refundRequestId,
       purchase,
       kindOf(seats),
@@ -781,7 +783,10 @@ export function declineRefundRequest(
 /** Raises the Notification the buyer gets once their Refund Request is decided. */
 function notifyBuyerOfDecision(
   tx: Tx,
-  kind: "refund_request_approved" | "refund_request_declined",
+  kind:
+    | "refund_request_approved"
+    | "refund_request_approved_enrollment_kept"
+    | "refund_request_declined",
   refundRequestId: number,
   purchase: Purchase,
   purchaseKind: PurchaseKind,
@@ -789,34 +794,21 @@ function notifyBuyerOfDecision(
   note: string | null,
   now: Date
 ) {
-  const platformAdmin = tx
-    .select({ name: users.name })
-    .from(users)
-    .where(eq(users.id, platformAdminId))
-    .get();
-  const course = tx
-    .select({ title: courses.title })
-    .from(courses)
-    .where(eq(courses.id, purchase.courseId))
-    .get();
-  const courseTitle = course?.title ?? "your course";
+  const courseTitle = courseLabel(tx, purchase.courseId);
 
   notify(
     tx,
-    platformAdminId,
-    kind,
     {
-      actor: {
-        type: "user",
-        id: platformAdminId,
-        label: platformAdmin?.name ?? "A Platform Admin",
+      kind,
+      data: {
+        actor: userRef(tx, platformAdminId),
+        object: ref("refund_request", refundRequestId, courseTitle),
+        target: ref(purchaseKind, purchase.id, courseTitle),
+        ...(note ? { excerpt: note } : {}),
       },
-      object: { type: "refund_request", id: refundRequestId, label: courseTitle },
-      target: { type: purchaseKind, id: purchase.id, label: courseTitle },
-      ...(note ? { excerpt: note } : {}),
+      url: purchaseKind === "team_licence" ? "/team" : "/settings",
+      recipients: { user: purchase.userId },
     },
-    purchaseKind === "team_licence" ? "/team" : "/settings",
-    { user: purchase.userId },
     now
   );
 }

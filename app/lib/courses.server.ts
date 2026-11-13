@@ -1,5 +1,6 @@
 import { eq } from "drizzle-orm";
-import { courses, CourseStatus, users } from "~/db/schema";
+import { courses, CourseStatus } from "~/db/schema";
+import { ref, userRef } from "~/lib/notification-refs.server";
 import { notify, type Db } from "~/lib/notifications.server";
 
 // ─── Courses ───
@@ -35,41 +36,33 @@ export function changeCourseStatus(
 
     if (course.status === status) return updated;
 
-    const actor = tx
-      .select({ name: users.name })
-      .from(users)
-      .where(eq(users.id, actorId))
-      .get();
-
-    const actorRef = {
-      type: "user" as const,
-      id: actorId,
-      label: actor?.name ?? "Someone",
-    };
-    const courseRef = { type: "course" as const, id: course.id, label: course.title };
+    const actorRef = userRef(tx, actorId);
+    const courseRef = ref("course", course.id, course.title);
 
     notify(
       tx,
-      actorId,
-      "course_status_changed",
       {
-        actor: actorRef,
-        object: courseRef,
-        change: { from: course.status, to: status },
+        kind: "course_status_changed",
+        data: {
+          actor: actorRef,
+          object: courseRef,
+          change: { from: course.status, to: status },
+        },
+        url: `/instructor/${course.id}`,
+        recipients: { user: course.instructorId },
       },
-      `/instructor/${course.id}`,
-      { user: course.instructorId },
       now
     );
 
     if (status === CourseStatus.Archived) {
       notify(
         tx,
-        actorId,
-        "course_archived",
-        { actor: actorRef, object: courseRef },
-        `/courses/${course.slug}`,
-        { courseStudents: course.id },
+        {
+          kind: "course_archived",
+          data: { actor: actorRef, object: courseRef },
+          url: `/courses/${course.slug}`,
+          recipients: { courseStudents: course.id },
+        },
         now
       );
     }
