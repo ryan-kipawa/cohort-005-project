@@ -15,6 +15,7 @@ import {
   users,
 } from "~/db/schema";
 import { db } from "~/db";
+import { changeCourseStatus } from "~/lib/courses.server";
 import { eq, or, sql } from "drizzle-orm";
 import { Card, CardContent } from "~/components/ui/card";
 import { Button } from "~/components/ui/button";
@@ -71,15 +72,6 @@ function getEnrollmentCountForCourse(courseId: number) {
     .get();
 
   return result?.count ?? 0;
-}
-
-function updateCourseStatus(id: number, status: CourseStatus) {
-  return db
-    .update(courses)
-    .set({ status, updatedAt: new Date().toISOString() })
-    .where(eq(courses.id, id))
-    .returning()
-    .get();
 }
 
 export function meta() {
@@ -139,7 +131,14 @@ export async function action({ request }: Route.ActionArgs) {
   const { intent } = parsed.data;
 
   if (intent === "update-status") {
-    updateCourseStatus(parsed.data.courseId, parsed.data.status);
+    const updated = changeCourseStatus(
+      db,
+      currentUserId,
+      parsed.data.courseId,
+      parsed.data.status,
+      new Date()
+    );
+    if (!updated) throw data("Course not found.", { status: 404 });
     return { success: true };
   }
 
