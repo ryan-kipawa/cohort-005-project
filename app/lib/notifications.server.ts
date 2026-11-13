@@ -2,8 +2,9 @@ import { and, desc, eq, gte, inArray, isNull, lt } from "drizzle-orm";
 import type { BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
 import { z } from "zod";
 import * as schema from "~/db/schema";
-import { notifications, users, UserRole } from "~/db/schema";
+import { enrollments, notifications, users, UserRole } from "~/db/schema";
 import {
+  catalogue,
   catalogueEntry,
   ENTITY_TYPES,
   isNotificationKind,
@@ -46,11 +47,18 @@ const recipientResolvers = {
       .where(eq(users.role, UserRole.Admin))
       .all()
       .map((row) => row.id),
+  courseStudents: (db: Queryable, courseId: number): number[] =>
+    db
+      .select({ id: enrollments.userId })
+      .from(enrollments)
+      .where(eq(enrollments.courseId, courseId))
+      .all()
+      .map((row) => row.id),
 };
 
 type Resolvers = typeof recipientResolvers;
 
-/** e.g. `{ user: 7 }` or `{ platformAdmins: true }`. */
+/** e.g. `{ user: 7 }`, `{ platformAdmins: true }` or `{ courseStudents: 3 }`. */
 export type RecipientSelector = {
   [K in keyof Resolvers]: { [P in K]: Parameters<Resolvers[K]>[1] };
 }[keyof Resolvers];
@@ -256,11 +264,73 @@ export function getNotificationInbox(
   recipientId: number,
   now: Date
 ): NotificationInbox {
-  const rows = getInboxRows(db, recipientId, now);
+  const { today, earlier } = getNotificationInboxPage(db, recipientId, now, {
+    limit: Infinity,
+  });
+  return { today, earlier };
+}
+
+function splitByDay(rows: InboxRow[], now: Date): NotificationInbox {
   const today = localDay(now);
   return {
     today: rows.filter((row) => localDay(new Date(row.createdAt)) === today),
     earlier: rows.filter((row) => localDay(new Date(row.createdAt)) !== today),
+  };
+}
+
+/** The order the Notification Category filter chips appear in. */
+export const NOTIFICATION_CATEGORIES = [
+  "Money",
+  "Courses",
+  "Discussion",
+  "Account",
+] as const satisfies readonly NotificationCategory[];
+
+/** How many inbox rows the Notification Inbox shows per "Load more". */
+export const INBOX_PAGE_SIZE = 50;
+
+export type InboxFilters = {
+  /** Only rows of this Notification Category. Omit for All. */
+  category?: NotificationCategory;
+  /** Only unread rows. */
+  unreadOnly?: boolean;
+  /** At most this many rows, a grouped row counting once. Defaults to one page. */
+  limit?: number;
+};
+
+export type NotificationInboxPage = NotificationInbox & {
+  /** The Notification Categories the Notification Recipient has Notifications in, whatever the filters. */
+  categories: NotificationCategory[];
+  /** Whether rows beyond `limit` match the filters. */
+  hasMore: boolean;
+};
+
+/**
+ * The Notification Inbox, filtered and limited: the rows matching `filters`,
+ * newest first, at most `limit` of them, split into Today and Earlier.
+ */
+export function getNotificationInboxPage(
+  db: Queryable,
+  recipientId: number,
+  now: Date,
+  filters: InboxFilters = {}
+): NotificationInboxPage {
+  const { category, unreadOnly = false, limit = INBOX_PAGE_SIZE } = filters;
+  const rows = getInboxRows(db, recipientId, now);
+
+  const present = new Set(rows.map((row) => row.category));
+  const categories = NOTIFICATION_CATEGORIES.filter((c) => present.has(c));
+
+  const matching = rows.filter(
+    (row) =>
+      (category === undefined || row.category === category) &&
+      (!unreadOnly || !row.read)
+  );
+
+  return {
+    ...splitByDay(matching.slice(0, limit), now),
+    categories,
+    hasMore: matching.length > limit,
   };
 }
 
@@ -295,6 +365,34 @@ export function markNotificationsRead(
         isNull(notifications.readAt)
       )
     )
+    .run();
+}
+
+/**
+ * Mark all as read: marks every one of the Notification Recipient's unread
+ * Notifications in `category` read, or all of them when `category` is
+ * omitted (All).
+ */
+export function markAllNotificationsRead(
+  db: Queryable,
+  recipientId: number,
+  category: NotificationCategory | undefined,
+  now: Date
+): void {
+  const conditions = [
+    eq(notifications.recipientId, recipientId),
+    isNull(notifications.readAt),
+  ];
+  if (category !== undefined) {
+    const kinds = Object.entries(catalogue)
+      .filter(([, entry]) => entry.category === category)
+      .map(([kind]) => kind);
+    if (kinds.length === 0) return;
+    conditions.push(inArray(notifications.kind, kinds));
+  }
+  db.update(notifications)
+    .set({ readAt: now.toISOString() })
+    .where(and(...conditions))
     .run();
 }
 

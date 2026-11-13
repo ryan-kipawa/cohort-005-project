@@ -75,6 +75,60 @@ export const catalogue = {
       };
     },
   },
+  // Refund Requests. `object` is the Refund Request, labelled with the
+  // course title; `target` is the Purchase it is for, whose type says whether
+  // it was an Individual Purchase or a Team Licence.
+  refund_request_raised: {
+    category: "Money",
+    object: ["refund_request"],
+    target: ["individual_purchase", "team_licence"],
+    render: (data) => ({
+      title: `${data.actor.label} asked for a refund on ${data.object.label}`,
+      body: data.excerpt,
+    }),
+  },
+  refund_request_approved: {
+    category: "Money",
+    object: ["refund_request"],
+    target: ["individual_purchase", "team_licence"],
+    render: (data) => {
+      const course = data.object.label;
+      const ended =
+        data.target?.type === "team_licence"
+          ? `The Unclaimed Seats on your Team Licence for ${course} can no longer be claimed.`
+          : `Your Enrollment in ${course} has ended.`;
+      return {
+        title: `Your refund for ${course} was approved`,
+        body: `${ended} The full amount you paid is on its way back to you.`,
+      };
+    },
+  },
+  refund_request_declined: {
+    category: "Money",
+    object: ["refund_request"],
+    target: ["individual_purchase", "team_licence"],
+    render: (data) => ({
+      title: `Your refund for ${data.object.label} was declined`,
+      body: data.excerpt,
+    }),
+  },
+  course_status_changed: {
+    category: "Courses",
+    object: ["course"],
+    render: (data) => {
+      const change = data.change;
+      if (!change) return { title: `${data.object.label} had its status changed` };
+      return {
+        title: `${data.object.label} was moved from ${capitalise(change.from)} to ${capitalise(change.to)}`,
+        body: `${data.actor.label} changed the status of your course.`,
+      };
+    },
+  },
+  course_archived: {
+    category: "Courses",
+    object: ["course"],
+    render: (data) => ({ title: `${data.object.label} was archived` }),
+  },
   lesson_thread_started: {
     category: "Discussion",
     object: ["lesson_thread"],

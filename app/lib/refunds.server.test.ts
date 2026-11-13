@@ -14,6 +14,7 @@ import {
   listTeamLicences,
   raiseRefundRequest,
 } from "./refunds.server";
+import { getNotificationInbox } from "./notifications.server";
 
 type TestDb = ReturnType<typeof createTestDb>;
 
@@ -499,6 +500,111 @@ describe("listing Refund Requests", () => {
     expect(listTeamLicences(db, priya.id, NOW)).toMatchObject([
       { seatCount: 2, claimedSeatCount: 1, canRequestRefund: false },
       { seatCount: 2, claimedSeatCount: 0, canRequestRefund: true },
+    ]);
+  });
+});
+
+describe("Refund Request Notifications", () => {
+  function inbox(userId: number) {
+    return getNotificationInbox(db, userId, NOW).today;
+  }
+
+  it("tells every Platform Admin when a buyer raises one, and not the buyer", () => {
+    const secondAdmin = db
+      .insert(schema.users)
+      .values({ name: "Sam Admin", email: "sam@example.com", role: UserRole.Admin })
+      .returning()
+      .get();
+    const purchase = buyForSelf(base.user.id);
+
+    raise(purchase.id, base.user.id);
+
+    for (const admin of [platformAdmin, secondAdmin]) {
+      expect(inbox(admin.id)).toEqual([
+        expect.objectContaining({
+          kind: "refund_request_raised",
+          category: "Money",
+          title: "Test User asked for a refund on Test Course",
+          body: "It was not what I expected.",
+          url: "/admin/refunds",
+          read: false,
+        }),
+      ]);
+    }
+    expect(inbox(base.user.id)).toEqual([]);
+  });
+
+  it("tells the buyer, and not the deciding Platform Admin, that an approved Individual Purchase ended their Enrollment", () => {
+    const purchase = buyForSelf(base.user.id);
+    const id = raise(purchase.id, base.user.id);
+
+    approveRefundRequest(db, id, platformAdmin.id, null, NOW);
+
+    expect(inbox(base.user.id)).toEqual([
+      expect.objectContaining({
+        kind: "refund_request_approved",
+        category: "Money",
+        title: "Your refund for Test Course was approved",
+        body: "Your Enrollment in Test Course has ended. The full amount you paid is on its way back to you.",
+        url: "/settings",
+      }),
+    ]);
+    expect(
+      inbox(platformAdmin.id).filter((row) => row.kind !== "refund_request_raised")
+    ).toEqual([]);
+  });
+
+  it("tells a Team Admin that an approved Team Licence ended its Unclaimed Seats", () => {
+    const priya = addLearner("Priya");
+    const { purchase } = buySeats(priya.id, 2);
+    const id = raise(purchase.id, priya.id);
+
+    approveRefundRequest(db, id, platformAdmin.id, null, NOW);
+
+    expect(inbox(priya.id)).toEqual([
+      expect.objectContaining({
+        kind: "refund_request_approved",
+        category: "Money",
+        title: "Your refund for Test Course was approved",
+        body: "The Unclaimed Seats on your Team Licence for Test Course can no longer be claimed. The full amount you paid is on its way back to you.",
+        url: "/team",
+      }),
+    ]);
+  });
+
+  it("tells the buyer a Refund Request was declined, with the decision note", () => {
+    const purchase = buyForSelf(base.user.id);
+    const id = raise(purchase.id, base.user.id);
+
+    declineRefundRequest(db, id, platformAdmin.id, "You finished the course.", NOW);
+
+    expect(inbox(base.user.id)).toEqual([
+      expect.objectContaining({
+        kind: "refund_request_declined",
+        category: "Money",
+        title: "Your refund for Test Course was declined",
+        body: "You finished the course.",
+        url: "/settings",
+      }),
+    ]);
+  });
+
+  it("raises nothing when a refund check fails", () => {
+    const outsideWindow = buyForSelf(base.user.id, 20);
+    expect(
+      raiseRefundRequest(db, outsideWindow.id, base.user.id, "Too late?", NOW).ok
+    ).toBe(false);
+    expect(inbox(platformAdmin.id)).toEqual([]);
+
+    const purchase = buyForSelf(base.user.id);
+    const id = raise(purchase.id, base.user.id);
+    approveRefundRequest(db, id, platformAdmin.id, null, NOW);
+    const secondAdmin = addLearner("Sam");
+
+    expect(declineRefundRequest(db, id, secondAdmin.id, "No.", NOW).ok).toBe(false);
+    expect(approveRefundRequest(db, id, secondAdmin.id, null, NOW).ok).toBe(false);
+    expect(inbox(base.user.id).map((row) => row.kind)).toEqual([
+      "refund_request_approved",
     ]);
   });
 });

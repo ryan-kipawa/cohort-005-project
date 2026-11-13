@@ -2774,14 +2774,16 @@ This course is still in draft while the cluster examples are rewritten against t
       updatedAt: daysAgo(6),
     })
     .run();
-  db.insert(schema.refunds)
+  const liamRefundRequest = db
+    .insert(schema.refunds)
     .values({
       purchaseId: liamPurchase.id,
       status: RefundStatus.Open,
       reason: "Bought the wrong one, I meant the advanced course.",
       requestedAt: daysAgo(4),
     })
-    .run();
+    .returning()
+    .get();
 
   console.log("Created Liam's Refund Request.");
 
@@ -2789,14 +2791,16 @@ This course is still in draft while the cluster examples are rewritten against t
   // A Team Licence with no Claimed Seats, so a Platform Admin can approve it.
   // Its Seats are on hold while the request is open.
 
-  db.insert(schema.refunds)
+  const martaRefundRequest = db
+    .insert(schema.refunds)
     .values({
       purchaseId: novakLicence.purchase.id,
       status: RefundStatus.Open,
       reason: "Our design team was reorganised and nobody needs these seats now.",
       requestedAt: daysAgo(1),
     })
-    .run();
+    .returning()
+    .get();
 
   console.log("Created Marta's Refund Request on her Team Licence.");
 
@@ -2845,6 +2849,38 @@ This course is still in draft while the cluster examples are rewritten against t
 
   const emma = studentByEmail("emma.wilson@student.dev");
 
+  // The buyer raising a Refund Request notifies every Platform Admin.
+  function refundRequestRaised(
+    buyer: typeof schema.users.$inferSelect,
+    refundRequest: typeof schema.refunds.$inferSelect,
+    course: typeof schema.courses.$inferSelect,
+    purchaseKind: "individual_purchase" | "team_licence"
+  ): SeededNotification["raise"] {
+    return (tx, now) =>
+      notify(
+        tx,
+        buyer.id,
+        "refund_request_raised",
+        {
+          actor: { type: "user", id: buyer.id, label: buyer.name },
+          object: {
+            type: "refund_request",
+            id: refundRequest.id,
+            label: course.title,
+          },
+          target: {
+            type: purchaseKind,
+            id: refundRequest.purchaseId,
+            label: course.title,
+          },
+          excerpt: refundRequest.reason,
+        },
+        "/admin/refunds",
+        { platformAdmins: true },
+        now
+      );
+  }
+
   const seededNotifications: SeededNotification[] = [
     {
       when: new Date(hoursAgo(2)),
@@ -2861,7 +2897,96 @@ This course is still in draft while the cluster examples are rewritten against t
       read: false,
       raise: roleChanged(emma, UserRole.Instructor),
     },
+    {
+      when: new Date(liamRefundRequest.requestedAt),
+      read: true,
+      raise: refundRequestRaised(
+        liam,
+        liamRefundRequest,
+        course1,
+        "individual_purchase"
+      ),
+    },
+    {
+      when: new Date(martaRefundRequest.requestedAt),
+      read: false,
+      raise: refundRequestRaised(
+        studentByEmail("marta.novak@student.dev"),
+        martaRefundRequest,
+        course3,
+        "team_licence"
+      ),
+    },
   ];
+
+  // Course status and archive Notifications. Course 2 was archived by the
+  // admin and later put back on sale; course 5 was taken back to draft.
+
+  function courseStatusChanged(
+    course: typeof schema.courses.$inferSelect,
+    from: CourseStatus,
+    to: CourseStatus
+  ): SeededNotification["raise"] {
+    return (tx, now) =>
+      notify(
+        tx,
+        admin.id,
+        "course_status_changed",
+        {
+          actor: { type: "user", id: admin.id, label: admin.name },
+          object: { type: "course", id: course.id, label: course.title },
+          change: { from, to },
+        },
+        `/instructor/${course.id}`,
+        { user: course.instructorId },
+        now
+      );
+  }
+
+  function courseArchived(
+    course: typeof schema.courses.$inferSelect
+  ): SeededNotification["raise"] {
+    return (tx, now) =>
+      notify(
+        tx,
+        admin.id,
+        "course_archived",
+        {
+          actor: { type: "user", id: admin.id, label: admin.name },
+          object: { type: "course", id: course.id, label: course.title },
+        },
+        `/courses/${course.slug}`,
+        { courseStudents: course.id },
+        now
+      );
+  }
+
+  // Both raised by the same archive, a millisecond apart so marking the first
+  // read (matched on its time) leaves the second unread.
+  const course2ArchivedAt = new Date(daysAgo(12));
+
+  seededNotifications.push(
+    {
+      when: course2ArchivedAt,
+      read: true,
+      raise: courseStatusChanged(course2, CourseStatus.Published, CourseStatus.Archived),
+    },
+    {
+      when: new Date(course2ArchivedAt.getTime() + 1),
+      read: false,
+      raise: courseArchived(course2),
+    },
+    {
+      when: new Date(daysAgo(9)),
+      read: true,
+      raise: courseStatusChanged(course2, CourseStatus.Archived, CourseStatus.Published),
+    },
+    {
+      when: new Date(hoursAgo(5)),
+      read: false,
+      raise: courseStatusChanged(course5, CourseStatus.Published, CourseStatus.Draft),
+    }
+  );
 
   // Lesson Thread Notifications, raised from the seeded Lesson Threads above.
   function lessonThreadNotification(
