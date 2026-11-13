@@ -92,3 +92,31 @@ A Refund where the money couldn't be sent. The Refund Request stays approved, be
 **Watch Limit**:
 The amount of Watched time on a course past which a Student can no longer get a Refund, because they've had the course.
 _Avoid_: Watch cap, Viewing threshold
+
+### Notifications
+
+**Notification**:
+A message Cadence shows a Notification Recipient in the app about something someone else did that concerns them.
+_Avoid_: Alert, Message
+
+**Notification Recipient**:
+The Student, Instructor, Platform Admin or Team Admin a Notification is shown to. Whoever's action raised a Notification is never its Notification Recipient, even when it concerns them (a Team Admin claiming a Seat on their own Team Licence).
+_Avoid_: Recipient (on its own), User, Receiver
+
+**Unread Notification**:
+A Notification its Notification Recipient hasn't opened or marked read yet. Once read, a Notification never becomes unread again.
+_Avoid_: New, Unseen
+
+**Notification Inbox**:
+The page listing a Notification Recipient's Notifications, reached from the sidebar. It is the only place Notifications appear; Cadence never interrupts with a toast or popup.
+_Avoid_: Notification Center, Feed, Bell
+
+**Notification Category**:
+The filter a kind of Notification belongs to in the Notification Inbox: Money, Courses, Discussion or Account.
+_Avoid_: Type, Topic
+
+### Lessons
+
+**Lesson Thread**:
+A conversation under a lesson: an opening post and the replies to it. Replies are only one level deep. Anyone who can see the lesson can start one or reply.
+_Avoid_: Comment, Question, Discussion, Thread (on its own), Staff
