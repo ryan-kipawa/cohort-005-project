@@ -5,6 +5,7 @@ import { db } from "~/db";
 import { getCurrentUserId } from "~/lib/session";
 import { parseFormData } from "~/lib/validation";
 import { cn } from "~/lib/utils";
+import { useRevalidateOnFocus } from "~/lib/use-revalidate-on-focus";
 import {
   getNotificationInbox,
   markNotificationsRead,
@@ -164,6 +165,7 @@ function Section({
 }
 
 export default function Notifications({ loaderData }: Route.ComponentProps) {
+  useRevalidateOnFocus();
   const { inbox, now } = loaderData;
   const isEmpty = inbox.today.length === 0 && inbox.earlier.length === 0;
 
