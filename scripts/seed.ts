@@ -2774,14 +2774,16 @@ This course is still in draft while the cluster examples are rewritten against t
       updatedAt: daysAgo(6),
     })
     .run();
-  db.insert(schema.refunds)
+  const liamRefundRequest = db
+    .insert(schema.refunds)
     .values({
       purchaseId: liamPurchase.id,
       status: RefundStatus.Open,
       reason: "Bought the wrong one, I meant the advanced course.",
       requestedAt: daysAgo(4),
     })
-    .run();
+    .returning()
+    .get();
 
   console.log("Created Liam's Refund Request.");
 
@@ -2789,14 +2791,16 @@ This course is still in draft while the cluster examples are rewritten against t
   // A Team Licence with no Claimed Seats, so a Platform Admin can approve it.
   // Its Seats are on hold while the request is open.
 
-  db.insert(schema.refunds)
+  const martaRefundRequest = db
+    .insert(schema.refunds)
     .values({
       purchaseId: novakLicence.purchase.id,
       status: RefundStatus.Open,
       reason: "Our design team was reorganised and nobody needs these seats now.",
       requestedAt: daysAgo(1),
     })
-    .run();
+    .returning()
+    .get();
 
   console.log("Created Marta's Refund Request on her Team Licence.");
 
@@ -2845,6 +2849,38 @@ This course is still in draft while the cluster examples are rewritten against t
 
   const emma = studentByEmail("emma.wilson@student.dev");
 
+  // The buyer raising a Refund Request notifies every Platform Admin.
+  function refundRequestRaised(
+    buyer: typeof schema.users.$inferSelect,
+    refundRequest: typeof schema.refunds.$inferSelect,
+    course: typeof schema.courses.$inferSelect,
+    purchaseKind: "individual_purchase" | "team_licence"
+  ): SeededNotification["raise"] {
+    return (tx, now) =>
+      notify(
+        tx,
+        buyer.id,
+        "refund_request_raised",
+        {
+          actor: { type: "user", id: buyer.id, label: buyer.name },
+          object: {
+            type: "refund_request",
+            id: refundRequest.id,
+            label: course.title,
+          },
+          target: {
+            type: purchaseKind,
+            id: refundRequest.purchaseId,
+            label: course.title,
+          },
+          excerpt: refundRequest.reason,
+        },
+        "/admin/refunds",
+        { platformAdmins: true },
+        now
+      );
+  }
+
   const seededNotifications: SeededNotification[] = [
     {
       when: new Date(hoursAgo(2)),
@@ -2860,6 +2896,26 @@ This course is still in draft while the cluster examples are rewritten against t
       when: new Date(daysAgo(3)),
       read: false,
       raise: roleChanged(emma, UserRole.Instructor),
+    },
+    {
+      when: new Date(liamRefundRequest.requestedAt),
+      read: true,
+      raise: refundRequestRaised(
+        liam,
+        liamRefundRequest,
+        course1,
+        "individual_purchase"
+      ),
+    },
+    {
+      when: new Date(martaRefundRequest.requestedAt),
+      read: false,
+      raise: refundRequestRaised(
+        studentByEmail("marta.novak@student.dev"),
+        martaRefundRequest,
+        course3,
+        "team_licence"
+      ),
     },
   ];
 
