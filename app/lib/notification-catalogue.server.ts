@@ -75,6 +75,23 @@ export const catalogue = {
       };
     },
   },
+  course_status_changed: {
+    category: "Courses",
+    object: ["course"],
+    render: (data) => {
+      const change = data.change;
+      if (!change) return { title: `${data.object.label} had its status changed` };
+      return {
+        title: `${data.object.label} was moved from ${capitalise(change.from)} to ${capitalise(change.to)}`,
+        body: `${data.actor.label} changed the status of your course.`,
+      };
+    },
+  },
+  course_archived: {
+    category: "Courses",
+    object: ["course"],
+    render: (data) => ({ title: `${data.object.label} was archived` }),
+  },
 } satisfies Record<string, CatalogueEntry>;
 
 export type NotificationKind = keyof typeof catalogue;

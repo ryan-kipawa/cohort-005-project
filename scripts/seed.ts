@@ -2863,6 +2863,75 @@ This course is still in draft while the cluster examples are rewritten against t
     },
   ];
 
+  // Course status and archive Notifications. Course 2 was archived by the
+  // admin and later put back on sale; course 5 was taken back to draft.
+
+  function courseStatusChanged(
+    course: typeof schema.courses.$inferSelect,
+    from: CourseStatus,
+    to: CourseStatus
+  ): SeededNotification["raise"] {
+    return (tx, now) =>
+      notify(
+        tx,
+        admin.id,
+        "course_status_changed",
+        {
+          actor: { type: "user", id: admin.id, label: admin.name },
+          object: { type: "course", id: course.id, label: course.title },
+          change: { from, to },
+        },
+        `/instructor/${course.id}`,
+        { user: course.instructorId },
+        now
+      );
+  }
+
+  function courseArchived(
+    course: typeof schema.courses.$inferSelect
+  ): SeededNotification["raise"] {
+    return (tx, now) =>
+      notify(
+        tx,
+        admin.id,
+        "course_archived",
+        {
+          actor: { type: "user", id: admin.id, label: admin.name },
+          object: { type: "course", id: course.id, label: course.title },
+        },
+        `/courses/${course.slug}`,
+        { courseStudents: course.id },
+        now
+      );
+  }
+
+  // Both raised by the same archive, a millisecond apart so marking the first
+  // read (matched on its time) leaves the second unread.
+  const course2ArchivedAt = new Date(daysAgo(12));
+
+  seededNotifications.push(
+    {
+      when: course2ArchivedAt,
+      read: true,
+      raise: courseStatusChanged(course2, CourseStatus.Published, CourseStatus.Archived),
+    },
+    {
+      when: new Date(course2ArchivedAt.getTime() + 1),
+      read: false,
+      raise: courseArchived(course2),
+    },
+    {
+      when: new Date(daysAgo(9)),
+      read: true,
+      raise: courseStatusChanged(course2, CourseStatus.Archived, CourseStatus.Published),
+    },
+    {
+      when: new Date(hoursAgo(5)),
+      read: false,
+      raise: courseStatusChanged(course5, CourseStatus.Published, CourseStatus.Draft),
+    }
+  );
+
   for (const seeded of seededNotifications) {
     db.transaction((tx) => {
       seeded.raise(tx, seeded.when);

@@ -2,7 +2,7 @@ import { and, desc, eq, gte, inArray, isNull, lt } from "drizzle-orm";
 import type { BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
 import { z } from "zod";
 import * as schema from "~/db/schema";
-import { notifications, users, UserRole } from "~/db/schema";
+import { enrollments, notifications, users, UserRole } from "~/db/schema";
 import {
   catalogueEntry,
   ENTITY_TYPES,
@@ -46,11 +46,18 @@ const recipientResolvers = {
       .where(eq(users.role, UserRole.Admin))
       .all()
       .map((row) => row.id),
+  courseStudents: (db: Queryable, courseId: number): number[] =>
+    db
+      .select({ id: enrollments.userId })
+      .from(enrollments)
+      .where(eq(enrollments.courseId, courseId))
+      .all()
+      .map((row) => row.id),
 };
 
 type Resolvers = typeof recipientResolvers;
 
-/** e.g. `{ user: 7 }` or `{ platformAdmins: true }`. */
+/** e.g. `{ user: 7 }`, `{ platformAdmins: true }` or `{ courseStudents: 3 }`. */
 export type RecipientSelector = {
   [K in keyof Resolvers]: { [P in K]: Parameters<Resolvers[K]>[1] };
 }[keyof Resolvers];
