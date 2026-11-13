@@ -75,6 +75,30 @@ export const catalogue = {
       };
     },
   },
+  new_student: {
+    category: "Courses",
+    object: ["user"],
+    target: ["course"],
+    groupBy: "target",
+    render: (data, group) => {
+      const course = data.target?.label ?? "your course";
+      const others = group.length - 1;
+      const who =
+        others === 0
+          ? data.object.label
+          : `${data.object.label} and ${others} ${others === 1 ? "other" : "others"}`;
+      return { title: `${who} joined ${course}` };
+    },
+  },
+  seat_claimed: {
+    category: "Money",
+    object: ["seat"],
+    target: ["team_licence"],
+    render: (data) => ({
+      title: `${data.actor.label} claimed a Seat on your Team Licence for ${data.target?.label ?? "a course"}`,
+      body: "Your Team Licence can no longer be refunded.",
+    }),
+  },
 } satisfies Record<string, CatalogueEntry>;
 
 export type NotificationKind = keyof typeof catalogue;

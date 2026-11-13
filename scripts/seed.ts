@@ -2863,6 +2863,84 @@ This course is still in draft while the cluster examples are rewritten against t
     },
   ];
 
+  // New Students and Claimed Seats, matching the enrollments and the Team
+  // Licence seeded above. Course 1's first three new Students group into one
+  // read row; Sophia arrived after it was read, so she is her own unread row.
+
+  function newStudent(
+    student: typeof schema.users.$inferSelect,
+    course: typeof schema.courses.$inferSelect
+  ): SeededNotification["raise"] {
+    const studentRef = { type: "user" as const, id: student.id, label: student.name };
+    return (tx, now) =>
+      notify(
+        tx,
+        student.id,
+        "new_student",
+        {
+          actor: studentRef,
+          object: studentRef,
+          target: { type: "course", id: course.id, label: course.title },
+        },
+        `/instructor/${course.id}/students`,
+        { courseInstructor: course.id },
+        now
+      );
+  }
+
+  function seatClaimed(
+    student: typeof schema.users.$inferSelect,
+    seat: typeof schema.coupons.$inferSelect
+  ): SeededNotification["raise"] {
+    return (tx, now) =>
+      notify(
+        tx,
+        student.id,
+        "seat_claimed",
+        {
+          actor: { type: "user", id: student.id, label: student.name },
+          object: { type: "seat", id: seat.id, label: seat.code },
+          target: { type: "team_licence", id: teamPurchase.id, label: course2.title },
+        },
+        "/team",
+        { user: teamPurchase.userId },
+        now
+      );
+  }
+
+  const olivia = studentByEmail("olivia.martinez@student.dev");
+
+  seededNotifications.push(
+    { when: new Date(daysAgo(50)), read: true, raise: newStudent(emma, course1) },
+    {
+      when: new Date(daysAgo(45)),
+      read: true,
+      raise: newStudent(studentByEmail("james.park@student.dev"), course1),
+    },
+    { when: new Date(daysAgo(35)), read: true, raise: newStudent(olivia, course1) },
+    {
+      when: new Date(daysAgo(15)),
+      read: false,
+      raise: newStudent(studentByEmail("sophia.davis@student.dev"), course1),
+    },
+    {
+      when: new Date(daysAgo(30)),
+      read: true,
+      raise: (tx, now) => {
+        seatClaimed(olivia, seededCoupons[0])(tx, now);
+        newStudent(olivia, course2)(tx, now);
+      },
+    },
+    {
+      when: new Date(daysAgo(25)),
+      read: false,
+      raise: (tx, now) => {
+        seatClaimed(liam, seededCoupons[1])(tx, now);
+        newStudent(liam, course2)(tx, now);
+      },
+    }
+  );
+
   for (const seeded of seededNotifications) {
     db.transaction((tx) => {
       seeded.raise(tx, seeded.when);
