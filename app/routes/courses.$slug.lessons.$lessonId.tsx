@@ -75,7 +75,7 @@ const saveNoteSchema = z.object({
 });
 
 const submitQuizSchema = z.object({
-  quizId: z.coerce.number().int(),
+  quizId: z.coerce.number().int().positive(),
 });
 
 // Answers arrive as fields named "question-{questionId}" whose value is the
