@@ -1,7 +1,7 @@
 import { Link } from "react-router";
 import { Moon, Sun } from "lucide-react";
 import { Button } from "~/components/ui/button";
-import { useDarkMode } from "~/lib/use-dark-mode";
+import { useDarkMode } from "~/components/use-dark-mode";
 
 export function LandingHeader({ signedIn }: { signedIn: boolean }) {
   const { isDark, toggleDarkMode } = useDarkMode();

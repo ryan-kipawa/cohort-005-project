@@ -1,5 +1,5 @@
 import { NavLink, Form } from "react-router";
-import { useDarkMode } from "~/lib/use-dark-mode";
+import { useDarkMode } from "~/components/use-dark-mode";
 import { cn } from "~/lib/utils";
 import { UserRole } from "~/db/schema";
 import { UserAvatar } from "~/components/user-avatar";
