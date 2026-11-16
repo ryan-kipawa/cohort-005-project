@@ -272,7 +272,7 @@ export function FullLesson({
   );
 }
 
-export function BookmarkToggle({ bookmarked }: { bookmarked: boolean }) {
+function BookmarkToggle({ bookmarked }: { bookmarked: boolean }) {
   const fetcher = useFetcher<{ ok: boolean }>();
   const isSaving = fetcher.state !== "idle";
 
