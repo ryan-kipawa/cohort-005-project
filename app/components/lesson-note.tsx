@@ -5,7 +5,7 @@ import { Button } from "~/components/ui/button";
 import { Card, CardContent } from "~/components/ui/card";
 import { Textarea } from "~/components/ui/textarea";
 import { cn, formatRelativeTime } from "~/lib/utils";
-import { describeNoteDraft } from "~/modules/lesson-notes";
+import { describeNoteDraft, type NoteDraft } from "~/modules/lesson-notes";
 
 export type SavedNote = { body: string; updatedAt: string } | null;
 
@@ -44,7 +44,8 @@ export function LessonNote({ note }: { note: SavedNote }) {
             </Button>
             <NoteStatus
               error={error}
-              unsaved={draft.unsaved && !isSaving}
+              draft={draft}
+              isSaving={isSaving}
               updatedAt={note?.updatedAt}
             />
             <span
@@ -62,19 +63,29 @@ export function LessonNote({ note }: { note: SavedNote }) {
   );
 }
 
+// Save is disabled for an empty or over-long draft, so the status says why.
 function NoteStatus({
   error,
-  unsaved,
+  draft,
+  isSaving,
   updatedAt,
 }: {
   error: string | undefined;
-  unsaved: boolean;
+  draft: NoteDraft;
+  isSaving: boolean;
   updatedAt: string | undefined;
 }) {
   if (error) return <span className="text-sm text-destructive">{error}</span>;
-  if (unsaved && updatedAt)
+  if (draft.unsaved && !isSaving)
     return (
-      <span className="text-xs text-muted-foreground">Unsaved changes</span>
+      <span
+        className={cn(
+          "text-xs",
+          draft.canSave ? "text-muted-foreground" : "text-destructive"
+        )}
+      >
+        {unsavedMessage(draft)}
+      </span>
     );
   if (!updatedAt) return null;
   return (
@@ -82,6 +93,12 @@ function NoteStatus({
       Saved {formatRelativeTime(updatedAt)}
     </span>
   );
+}
+
+function unsavedMessage(draft: NoteDraft) {
+  if (draft.empty) return "Write something to save your note";
+  if (draft.tooLong) return "Too long to save";
+  return "Unsaved changes";
 }
 
 function NoteHeader() {
