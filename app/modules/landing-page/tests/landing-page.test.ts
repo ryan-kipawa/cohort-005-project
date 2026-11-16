@@ -118,7 +118,6 @@ describe("landing page: newest courses", () => {
         id: course.id,
         title: "Engines",
         slug: course.slug,
-        description: "About Engines",
         coverImageUrl: course.coverImageUrl,
         instructorName: "Ada Lovelace",
         lessonCount: 4,

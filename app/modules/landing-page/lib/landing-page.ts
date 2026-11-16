@@ -5,13 +5,12 @@ import { CourseStatus } from "~/db/schema";
 
 export type Db = BetterSQLite3Database<typeof schema>;
 
-export const NEWEST_COURSE_LIMIT = 3;
+const NEWEST_COURSE_LIMIT = 3;
 
 export type LandingCourse = {
   id: number;
   title: string;
   slug: string;
-  description: string;
   coverImageUrl: string | null;
   instructorName: string;
   lessonCount: number;
@@ -37,7 +36,6 @@ function newestCourses(db: Db): LandingCourse[] {
       id: courses.id,
       title: courses.title,
       slug: courses.slug,
-      description: courses.description,
       coverImageUrl: courses.coverImageUrl,
       instructorName: users.name,
       lessonCount: sql<number>`count(${lessons.id})`,

@@ -2,15 +2,7 @@ import { Link } from "react-router";
 import { ArrowRight, BookOpen, Check } from "lucide-react";
 import { Button } from "~/components/ui/button";
 import { CourseImage } from "~/components/course-image";
-
-type HeroCourse = {
-  id: number;
-  title: string;
-  slug: string;
-  coverImageUrl: string | null;
-  instructorName: string;
-  lessonCount: number;
-};
+import type { LandingCourse } from "~/modules/landing-page/index.server";
 
 const SELLING_POINTS = [
   "Structured modules",
@@ -23,7 +15,7 @@ export function LandingHero({
   courses,
 }: {
   signedIn: boolean;
-  courses: HeroCourse[];
+  courses: LandingCourse[];
 }) {
   return (
     <section className="mx-auto grid max-w-6xl items-center gap-12 px-6 py-16 sm:py-24 grid-cols-1 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]">
@@ -69,7 +61,7 @@ export function LandingHero({
   );
 }
 
-function CoursePreview({ courses }: { courses: HeroCourse[] }) {
+function CoursePreview({ courses }: { courses: LandingCourse[] }) {
   return (
     <div className="rounded-2xl border border-border bg-muted/50 p-4 shadow-sm">
       <p className="px-2 pb-3 text-xs font-semibold uppercase tracking-widest text-muted-foreground">

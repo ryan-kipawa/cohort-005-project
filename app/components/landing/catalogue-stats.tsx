@@ -1,4 +1,4 @@
-type Stats = { courses: number; lessons: number; instructors: number };
+import type { CatalogueStats as Stats } from "~/modules/landing-page/index.server";
 
 export function CatalogueStats({ stats }: { stats: Stats }) {
   const items = [
