@@ -51,7 +51,15 @@ export async function loader({ request }: Route.LoaderArgs) {
 }
 
 export default function Home({ loaderData }: Route.ComponentProps) {
-  const { newestCourses, stats, users, currentUser } = loaderData;
+  const {
+    newestCourses,
+    stats,
+    users,
+    currentUser,
+    devCountry,
+    countryTierInfo,
+    countries,
+  } = loaderData;
   const signedIn = currentUser !== null;
 
   return (
@@ -64,9 +72,9 @@ export default function Home({ loaderData }: Route.ComponentProps) {
       <DevUI
         users={users}
         currentUser={currentUser}
-        devCountry={loaderData.devCountry}
-        countryTierInfo={loaderData.countryTierInfo}
-        countries={loaderData.countries}
+        devCountry={devCountry}
+        countryTierInfo={countryTierInfo}
+        countries={countries}
       />
     </div>
   );
