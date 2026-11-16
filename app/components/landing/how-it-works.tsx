@@ -14,7 +14,7 @@ const STEPS = [
   {
     icon: ListChecks,
     title: "Check what stuck",
-    body: "Quizzes at the end of a lesson tell you whether you've got it before you move on.",
+    body: "Where a lesson has a quiz, it tells you whether you've got it before you move on.",
   },
 ];
 
@@ -23,8 +23,8 @@ export function HowItWorks() {
     <section className="mx-auto max-w-6xl px-6 py-20">
       <h2 className="text-3xl font-bold tracking-tight">How Cadence works</h2>
       <p className="mt-2 max-w-xl text-muted-foreground">
-        Self-paced doesn't mean on your own. Every course has a structure and a
-        way to check yourself.
+        Self-paced doesn't mean on your own. Every course has a structure, and
+        quizzes along the way let you check yourself.
       </p>
       <ol className="mt-10 grid grid-cols-1 gap-10 sm:grid-cols-3">
         {STEPS.map((step, index) => (
